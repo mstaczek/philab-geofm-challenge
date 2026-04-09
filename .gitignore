@@ -1,0 +1,15 @@
+# source repo
+emb2heights-baselines
+
+# venv
+.venv
+venv
+
+# data
+data
+
+# runs
+runs
+
+# cache
+__pycache__
