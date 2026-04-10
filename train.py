@@ -202,6 +202,8 @@ def main():
     print(f"Starting training on {DEVICE}...")
 
     train_losses, val_losses = [], []
+    train_mae_losses, train_ssim_losses, train_grad_losses, train_tversky_losses = [], [], [], []
+    val_mae_losses, val_ssim_losses, val_grad_losses, val_tversky_losses = [], [], [], []
     best_val_loss = float('inf')
 
     # --- TRAINING LOOP ---
@@ -209,6 +211,7 @@ def main():
         model.train()
         running_loss = 0.0
         train_samples_seen = 0
+        train_components = torch.zeros(4).to(DEVICE)
 
         train_pbar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{EPOCHS} [train]", leave=False)
         for imgs, targets in train_pbar:
@@ -216,7 +219,7 @@ def main():
             optimizer.zero_grad()
             outputs = model(imgs)
 
-            loss, _, _, _, _ = criterion(outputs, targets)
+            loss, l_mae, l_ssim, l_grad, l_tversky = criterion(outputs, targets)
             loss.backward()
 
             # NEW: Gradient Clipping
@@ -224,12 +227,23 @@ def main():
 
             optimizer.step()
             running_loss += loss.item() * imgs.size(0)
+            bs = imgs.size(0)
+            train_components[0] += l_mae * bs
+            train_components[1] += l_ssim * bs
+            train_components[2] += l_grad * bs
+            train_components[3] += l_tversky * bs
             train_samples_seen += imgs.size(0)
             train_avg = running_loss / max(1, train_samples_seen)
             train_pbar.set_postfix(loss=f"{loss.item():.4f}", avg=f"{train_avg:.4f}")
 
         epoch_loss = running_loss / len(train_ds)
         train_losses.append(epoch_loss)
+        
+        train_epoch_comp = train_components / len(train_ds)
+        train_mae_losses.append(train_epoch_comp[0].item())
+        train_ssim_losses.append(train_epoch_comp[1].item())
+        train_grad_losses.append(train_epoch_comp[2].item())
+        train_tversky_losses.append(train_epoch_comp[3].item())
 
         # --- VALIDATION LOOP ---
         model.eval()
@@ -258,6 +272,11 @@ def main():
         epoch_val_loss = val_running_loss / len(val_ds)
         epoch_comp = val_components / len(val_ds)
         val_losses.append(epoch_val_loss)
+        
+        val_mae_losses.append(epoch_comp[0].item())
+        val_ssim_losses.append(epoch_comp[1].item())
+        val_grad_losses.append(epoch_comp[2].item())
+        val_tversky_losses.append(epoch_comp[3].item())
 
         scheduler.step(epoch_val_loss)
 
@@ -279,6 +298,47 @@ def main():
     plt.title(f"Training Loss Curve ({EXPERIMENT_NAME})")
     plt.legend()
     plt.savefig(LOSS_CURVE_PATH)
+    plt.close()
+
+    # Plot individual loss components
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    
+    axes[0, 0].plot(train_mae_losses, label='Train', linewidth=2)
+    axes[0, 0].plot(val_mae_losses, label='Val', linewidth=2)
+    axes[0, 0].set_title('MAE Loss', fontsize=12, fontweight='bold')
+    axes[0, 0].set_xlabel('Epoch')
+    axes[0, 0].set_ylabel('Loss')
+    axes[0, 0].legend()
+    axes[0, 0].grid(True, alpha=0.3)
+    
+    axes[0, 1].plot(train_ssim_losses, label='Train', linewidth=2)
+    axes[0, 1].plot(val_ssim_losses, label='Val', linewidth=2)
+    axes[0, 1].set_title('SSIM Loss', fontsize=12, fontweight='bold')
+    axes[0, 1].set_xlabel('Epoch')
+    axes[0, 1].set_ylabel('Loss')
+    axes[0, 1].legend()
+    axes[0, 1].grid(True, alpha=0.3)
+    
+    axes[1, 0].plot(train_grad_losses, label='Train', linewidth=2)
+    axes[1, 0].plot(val_grad_losses, label='Val', linewidth=2)
+    axes[1, 0].set_title('Gradient Loss', fontsize=12, fontweight='bold')
+    axes[1, 0].set_xlabel('Epoch')
+    axes[1, 0].set_ylabel('Loss')
+    axes[1, 0].legend()
+    axes[1, 0].grid(True, alpha=0.3)
+    
+    axes[1, 1].plot(train_tversky_losses, label='Train', linewidth=2)
+    axes[1, 1].plot(val_tversky_losses, label='Val', linewidth=2)
+    axes[1, 1].set_title('Tversky Loss', fontsize=12, fontweight='bold')
+    axes[1, 1].set_xlabel('Epoch')
+    axes[1, 1].set_ylabel('Loss')
+    axes[1, 1].legend()
+    axes[1, 1].grid(True, alpha=0.3)
+    
+    plt.suptitle(f"Component Losses ({EXPERIMENT_NAME})", fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    component_loss_path = os.path.join(EXP_DIR, "component_losses.png")
+    plt.savefig(component_loss_path)
     plt.close()
 
 if __name__ == "__main__":

@@ -53,19 +53,24 @@ python split_data.py --train-ratio 0.8 --source-embeddings-dir data/public/embed
 Internally, it handles train/val splitting of the input data BUT by splitting data earlier and passing a single split, we can limit the size of the dataset for training.
 
 ```bash
-python train.py --model-type decoder_residual --output-dir runs --train-embeddings-dir data/terramind_s1_train_test_split/test/embeddings --train-targets-dir data/terramind_s1_train_test_split/test/labels --experiment-name test_terramind_s1_decoder_residual --epochs 2 --batch-size 4 --patch-size 256 --device cpu
+python train.py --model-type decoder_residual --output-dir runs --train-embeddings-dir data/terramind_s1_train_test_split/test/embeddings --train-targets-dir data/terramind_s1_train_test_split/test/labels --experiment-name test_terramind_s1_decoder_residual_v2 --epochs 10 --batch-size 16 --patch-size 256 --device cuda
 ```
 
 ## Run predict
 
+Save a few train predictions
+```bash
+python predict.py --experiment-name test_terramind_s1_decoder_residual_v2_cuda --base-dir runs --model-type decoder_residual --model-path runs/test_terramind_s1_decoder_residual_v2_cuda/model_best.pth --test-embeddings-dir data/terramind_s1_train_test_split/test/embeddings --predictions-dir runs/test_terramind_s1_decoder_residual_v2_cuda/predictions_train --patch-size 256 --max-samples 5 --device cuda
+```
+
 Test 5 samples predictions
 ```bash
-python predict.py --experiment-name test_terramind_s1_decoder_residual --base-dir runs --model-type decoder_residual --model-path runs/test_terramind_s1_decoder_residual/model_best_e1.pth --test-embeddings-dir data/public/embed2heights/data/test/terramind_test_s1_emb --predictions-dir runs/test_terramind_s1_decoder_residual/predictions --patch-size 256 --max-samples 5 --device cuda
+python predict.py --experiment-name test_terramind_s1_decoder_residual --base-dir runs --model-type decoder_residual --model-path runs/test_terramind_s1_decoder_residual/model_best.pth --test-embeddings-dir data/public/embed2heights/data/test/terramind_test_s1_emb --predictions-dir runs/test_terramind_s1_decoder_residual/predictions --patch-size 256 --max-samples 5 --device cuda
 ```
 
 Compute all predictions
 ```bash
-python predict.py --experiment-name test_terramind_s1_decoder_residual --base-dir runs --model-type decoder_residual --model-path runs/test_terramind_s1_decoder_residual/model_best_e1.pth --test-embeddings-dir data/public/embed2heights/data/test/terramind_test_s1_emb --predictions-dir runs/test_terramind_s1_decoder_residual/predictions --patch-size 256 --device cuda
+python predict.py --experiment-name test_terramind_s1_decoder_residual --base-dir runs --model-type decoder_residual --model-path runs/test_terramind_s1_decoder_residual/model_best.pth --test-embeddings-dir data/public/embed2heights/data/test/terramind_test_s1_emb --predictions-dir runs/test_terramind_s1_decoder_residual/predictions --patch-size 256 --device cuda
 ```
 
 ## Send submission
