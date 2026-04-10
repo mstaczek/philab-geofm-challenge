@@ -52,17 +52,19 @@ python train.py --model-type decoder_residual --output-dir runs --train-embeddin
 
 ## Run predict
 
+Test 5 samples predictions
 ```bash
-python predict.py --experiment-name test_terramind_s1_decoder_residual --base-dir runs --model-type decoder_residual --model-path runs/test_terramind_s1_decoder_residual/model_best_e1.pth --test-embeddings-dir data/public/embed2heights/data/test/terramind_s1_emb
-  --test-targets-dir TEST_TARGETS_DIR
-                        Directory containing label .tif files (used only for file pairing).
-  --predictions-dir PREDICTIONS_DIR
-                        Output directory for .npy predictions. Defaults to <base-dir>/<experiment-name>/predictions.
-  --patch-size PATCH_SIZE
-  --max-samples MAX_SAMPLES
-                        Limit inference to N samples (0 = all).
-  --device DEVICE
+python predict.py --experiment-name test_terramind_s1_decoder_residual --base-dir runs --model-type decoder_residual --model-path runs/test_terramind_s1_decoder_residual/model_best_e1.pth --test-embeddings-dir data/public/embed2heights/data/test/terramind_test_s1_emb --predictions-dir runs/test_terramind_s1_decoder_residual/predictions --patch-size 256 --max-samples 5 --device cuda
+```
 
+Compute all predictions
+```bash
+python predict.py --experiment-name test_terramind_s1_decoder_residual --base-dir runs --model-type decoder_residual --model-path runs/test_terramind_s1_decoder_residual/model_best_e1.pth --test-embeddings-dir data/public/embed2heights/data/test/terramind_test_s1_emb --predictions-dir runs/test_terramind_s1_decoder_residual/predictions --patch-size 256 --device cuda
+```
+
+## Send submission
+
+Using last cell in `starter_pack-embed2heights.ipynb`, set correct experiment name, run, find the new zip in the `submissions/` folder, and upload the `submission.zip` file to https://platform.ai4eo.eu/geoai/submissions (can be uploaded every 12h).
 
 ---
 # Copied from https://www.eotdl.com/datasets/embed2heights?ref=philabchallenges-cms.earthpulse.es
