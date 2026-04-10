@@ -152,7 +152,7 @@ def main():
 
     EXP_DIR = os.path.join(BASE_DIR, EXPERIMENT_NAME)
     VIZ_OUTPUT_DIR = os.path.join(EXP_DIR, "visualizations")
-    BEST_MODEL_PATH = os.path.join(EXP_DIR, "model_best_e1.pth")
+    BEST_MODEL_PATH = os.path.join(EXP_DIR, "model_best.pth")
     LAST_MODEL_PATH = os.path.join(EXP_DIR, "model_last.pth")
     LOSS_CURVE_PATH = os.path.join(EXP_DIR, "loss_curve.png")
     CONFIG_LOG_PATH = os.path.join(EXP_DIR, "training_params.txt")
