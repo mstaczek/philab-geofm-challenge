@@ -13,6 +13,12 @@ Usable in VS Code, from local folder to sample shared network drive.
 mklink /D C:\Users\matem\T\python_projects\philab\data_from_drive\public \\192.168.0.77\public\philab-dataset
 ```
 
+Optionally, to re-download data:
+```bash
+pip install eotdl 
+eotdl datasets get embed2heights --path . --version 1
+eotdl datasets get embed2heights --path . --version 1 --assets --verbose --force 
+```
 
 ## Installation (ours)
 
