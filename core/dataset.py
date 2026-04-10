@@ -1,5 +1,6 @@
 import os
 import glob
+from pathlib import Path
 import re
 import numpy as np
 import rasterio
@@ -37,15 +38,19 @@ def _normalize_core_id(filename):
     return base
 
 
-def find_file_pairs(emb_dir, tar_dir):
+def find_file_pairs(emb_dir, tar_dir=None):
     """
     Fast and robust O(N) file matching using a hash map and regex normalization.
     Searches recursively and guarantees a match regardless of prefixes/suffixes.
-    """
-    pairs = []
 
-    # 1. Grab ALL files from the disk exactly ONCE
+    If tar_dir is None, returns all embeddings with None as the target path.
+    """
+
+    # 1. Grab ALL embedding files from disk exactly ONCE
     emb_files = glob.glob(os.path.join(emb_dir, "**", "*.tif"), recursive=True)
+    if tar_dir is None:
+        return [(e_path, None) for e_path in emb_files]
+
     label_files = glob.glob(os.path.join(tar_dir, "**", "label_*.tif"), recursive=True)
 
     # 2. Build a fast lookup dictionary for the labels: {normalized_id: full_path}
@@ -55,6 +60,7 @@ def find_file_pairs(emb_dir, tar_dir):
         label_map[norm_id] = l_path
 
     # 3. Match embeddings to the lookup dictionary instantly
+    pairs = []
     for e_path in emb_files:
         norm_id = _normalize_core_id(e_path)
 
@@ -81,11 +87,14 @@ class PixelEmbeddingDataset(Dataset):
 
         with rasterio.open(emb_path) as src:
             image = src.read().astype(np.float32)
-        with rasterio.open(tar_path) as src:
-            target = src.read().astype(np.float32)
+        image = np.nan_to_num(image)
 
-        image, target = np.nan_to_num(image), np.nan_to_num(target)
-        target[3, :, :] = np.clip(target[3, :, :] / HEIGHT_NORM_CONSTANT, 0.0, 1.5)
+        target = None
+        if tar_path is not None:
+            with rasterio.open(tar_path) as src:
+                target = src.read().astype(np.float32)
+            target = np.nan_to_num(target)
+            target[3, :, :] = np.clip(target[3, :, :] / HEIGHT_NORM_CONSTANT, 0.0, 1.5)
 
         # 1:1 Padding
         c, h, w = image.shape
@@ -93,7 +102,8 @@ class PixelEmbeddingDataset(Dataset):
             pad_h = max(0, self.patch_size - h)
             pad_w = max(0, self.patch_size - w)
             image = np.pad(image, ((0, 0), (0, pad_h), (0, pad_w)), mode='reflect')
-            target = np.pad(target, ((0, 0), (0, pad_h), (0, pad_w)), mode='reflect')
+            if target is not None:
+                target = np.pad(target, ((0, 0), (0, pad_h), (0, pad_w)), mode='reflect')
             h, w = image.shape[1], image.shape[2]
 
         # 1:1 Random Cropping
@@ -105,9 +115,10 @@ class PixelEmbeddingDataset(Dataset):
             left = (w - self.patch_size) // 2
 
         image = image[:, top:top + self.patch_size, left:left + self.patch_size]
-        target = target[:, top:top + self.patch_size, left:left + self.patch_size]
+        if target is not None:
+            target = target[:, top:top + self.patch_size, left:left + self.patch_size]
 
-        return torch.from_numpy(image), torch.from_numpy(target)
+        return torch.from_numpy(image), torch.from_numpy(target) if target is not None else None
 
 # ---------------------------------------------------------
 # DATASET 2: Latent Token-Based (TerraMind, Thor)
@@ -128,11 +139,14 @@ class LatentTokenDataset(Dataset):
 
         with rasterio.open(emb_path) as src:
             image = src.read().astype(np.float32)
-        with rasterio.open(tar_path) as src:
-            target = src.read().astype(np.float32)
+        image = np.nan_to_num(image)
 
-        image, target = np.nan_to_num(image), np.nan_to_num(target)
-        target[3, :, :] = np.clip(target[3, :, :] / HEIGHT_NORM_CONSTANT, 0.0, 1.5)
+        target = None
+        if tar_path is not None:
+            with rasterio.open(tar_path) as src:
+                target = src.read().astype(np.float32)
+            target = np.nan_to_num(target)
+            target[3, :, :] = np.clip(target[3, :, :] / HEIGHT_NORM_CONSTANT, 0.0, 1.5)
 
         emb_patch_size = self.patch_size // self.scale_factor
 
@@ -144,12 +158,13 @@ class LatentTokenDataset(Dataset):
             image = np.pad(image, ((0, 0), (0, pad_h), (0, pad_w)), mode='reflect')
             h_emb, w_emb = image.shape[1], image.shape[2]
 
-        # Pad Target to full size
-        _, h_tar, w_tar = target.shape
-        if h_tar < self.patch_size or w_tar < self.patch_size:
-            pad_h = max(0, self.patch_size - h_tar)
-            pad_w = max(0, self.patch_size - w_tar)
-            target = np.pad(target, ((0, 0), (0, pad_h), (0, pad_w)), mode='reflect')
+        # Pad Target to full size only if labels exist
+        if target is not None:
+            _, h_tar, w_tar = target.shape
+            if h_tar < self.patch_size or w_tar < self.patch_size:
+                pad_h = max(0, self.patch_size - h_tar)
+                pad_w = max(0, self.patch_size - w_tar)
+                target = np.pad(target, ((0, 0), (0, pad_h), (0, pad_w)), mode='reflect')
 
         # Multi-scale Cropping
         if self.is_train:
@@ -163,6 +178,7 @@ class LatentTokenDataset(Dataset):
         left_tar = left_emb * self.scale_factor
 
         image = image[:, top_emb:top_emb + emb_patch_size, left_emb:left_emb + emb_patch_size]
-        target = target[:, top_tar:top_tar + self.patch_size, left_tar:left_tar + self.patch_size]
+        if target is not None:
+            target = target[:, top_tar:top_tar + self.patch_size, left_tar:left_tar + self.patch_size]
 
-        return torch.from_numpy(image), torch.from_numpy(target)
+        return torch.from_numpy(image), torch.from_numpy(target) if target is not None else None

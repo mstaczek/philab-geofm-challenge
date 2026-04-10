@@ -13,7 +13,6 @@ from core.dataset import PixelEmbeddingDataset, LatentTokenDataset, find_file_pa
 EXPERIMENT_NAME = "terramind_decoder_run01"
 BASE_DIR = "./runs"
 TEST_EMBEDDINGS_DIR = ""
-TEST_TARGETS_DIR = ""
 MODEL_TYPE = "decoder_residual"
 PATCH_SIZE = 256
 MAX_SAMPLES = 0
@@ -24,7 +23,7 @@ elif torch.backends.mps.is_available():
     DEVICE = torch.device("mps")
 else:
     DEVICE = torch.device("cpu")
-
+print("DEVICE: ", DEVICE)
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -40,8 +39,8 @@ def parse_args():
                         help="Path to the .pth checkpoint. Defaults to <base-dir>/<experiment-name>/model_best.pth.")
     parser.add_argument("--test-embeddings-dir", type=str, required=True,
                         help="Directory containing embedding .tif files.")
-    parser.add_argument("--test-targets-dir", type=str, required=True,
-                        help="Directory containing label .tif files (used only for file pairing).")
+    parser.add_argument("--test-targets-dir", type=str, default=None,
+                        help="Optional labels directory. If omitted, inference only uses embeddings.")
     parser.add_argument("--predictions-dir", type=str, default=None,
                         help="Output directory for .npy predictions. Defaults to <base-dir>/<experiment-name>/predictions.")
     parser.add_argument("--patch-size", type=int, default=PATCH_SIZE)
@@ -55,7 +54,8 @@ def main():
     global DEVICE
     args = parse_args()
     DEVICE = torch.device(args.device)
-
+    print("DEVICE: ", DEVICE)
+    
     exp_dir = os.path.join(args.base_dir, args.experiment_name)
     model_path = args.model_path or os.path.join(exp_dir, "model_best.pth")
     predictions_dir = args.predictions_dir or os.path.join(exp_dir, "predictions")
