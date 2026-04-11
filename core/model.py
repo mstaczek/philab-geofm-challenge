@@ -154,7 +154,6 @@ class EfficientDecoder256Fast(nn.Module):
 # 3. SELECT MODEL FUNCTION
 # ==========================================
 
-
 def build_model(model_type, n_channels, n_classes): # n_classes is 4 - to get all outputs with 1 model
     selected = model_type.lower()
 
@@ -164,7 +163,10 @@ def build_model(model_type, n_channels, n_classes): # n_classes is 4 - to get al
         else: # provided dataset have shapes 256x256x(64 or 128)
             selected = "lightunet"
 
-    if selected == "lightunet":
+    if selected == "decoder_residual" and n_channels != 768:
+        raise ValueError("Passed decoder_residual type with bad channels count.")
+    
+    if selected == "lightunet": # provided dataset have shapes 256x256x(64 or 128)
         return LightUNet(n_channels, n_classes), selected
     if selected == "decoder_residual": # default in channels 768
         return EfficientDecoder256Fast(in_channels=n_channels, out_channels=n_classes), selected

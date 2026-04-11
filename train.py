@@ -172,12 +172,12 @@ def main():
         all_train_pairs, test_size=VAL_SPLIT, random_state=RANDOM_SEED
     )
 
-        # In train.py:
-    if MODEL_TYPE == "lightunet":
+    # In train.py:
+    if MODEL_TYPE == "lightunet": # provided dataset have shapes 256x256x(64 or 128)
         train_ds = PixelEmbeddingDataset(train_pairs, patch_size=PATCH_SIZE, is_train=True)
         val_ds = PixelEmbeddingDataset(val_pairs, patch_size=PATCH_SIZE, is_train=False)
     else:
-        # For the decoders (TerraMind/Thor)
+        # For the decoders (TerraMind/Thor) # provided datasets have then shape 16x16x768
         train_ds = LatentTokenDataset(train_pairs, patch_size=PATCH_SIZE, scale_factor=16, is_train=True)
         val_ds = LatentTokenDataset(val_pairs, patch_size=PATCH_SIZE, scale_factor=16, is_train=False)
 
