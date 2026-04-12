@@ -1,3 +1,11 @@
+# Solution for embed2heights Challenge - Reaching New Heights with GeoFM Embeddings
+
+Team: 2theMoon 
+
+Team members:
+- Agata Kaczmarek
+- Mateusz Stączek
+
 ## Links
 
 - Competition: https://platform.ai4eo.eu/geoai/data
@@ -74,6 +82,8 @@ python predict.py --experiment-name test_terramind_s1_decoder_residual --base-di
 ```
 
 ## Send submission
+
+TODO: change filenames to pattern `3123_AB_2022.npy` where `2022` comes from the source embedding filename, and there is no `pred_` or `label_` prefix.
 
 Using last cell in `starter_pack-embed2heights.ipynb`, set correct experiment name, run, find the new zip in the `submissions/` folder, and upload the `submission.zip` file to https://platform.ai4eo.eu/geoai/submissions (can be uploaded every 12h).
 
