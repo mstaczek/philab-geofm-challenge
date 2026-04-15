@@ -14,6 +14,7 @@ from tqdm.auto import tqdm
 from core.model import build_model
 from core.dataset import PixelEmbeddingDataset, LatentTokenDataset, find_file_pairs, HEIGHT_NORM_CONSTANT
 from core.losses import ImprovedCompositeLoss
+from predict import get_prediction_dataset, run_inference, load_model, build_zip
 
 # --- 1. EXPERIMENT TRACKING ---
 EXPERIMENT_NAME = "terramid_run02/"
@@ -32,6 +33,8 @@ CONFIG_LOG_PATH = os.path.join(EXP_DIR, "training_params.txt")
 
 TRAIN_EMBEDDINGS_DIR = "../../emb2heights/data/gee_emb_aligned_v2"
 TRAIN_TARGETS_DIR = "../../emb2heights/data/patches_labels_10m/"
+
+TEST_EMBEDDINGS_DIR = ''
 
 BATCH_SIZE = 32
 PATCH_SIZE = 256
@@ -90,6 +93,15 @@ def parse_args():
     parser.add_argument("--patch-size", type=int, default=PATCH_SIZE)
     parser.add_argument("--epochs", type=int, default=EPOCHS)
     parser.add_argument("--device", type=str, default="cpu")
+
+
+    parser.add_argument("--test-submission-embeddings-dir", type=str, default=TEST_EMBEDDINGS_DIR,
+                        help="Directory containing embedding .tif files.")
+    parser.add_argument("--predictions-subfolder", type=str, default=None,
+                        help="Output directory for .npy predictions. Defaults to <base-dir>/<experiment-name>/predictions.")
+    parser.add_argument("--zip-output", type=str, default=None, 
+                        help="Zip name in submissions folder with all files from the predictions folder will be created.")
+
     return parser.parse_args()
 
 
@@ -136,7 +148,7 @@ def main():
     print("Starting main() function")
     global BASE_DIR, EXPERIMENT_NAME, EXP_DIR, VIZ_OUTPUT_DIR
     global BEST_MODEL_PATH, LAST_MODEL_PATH, LOSS_CURVE_PATH, CONFIG_LOG_PATH
-    global TRAIN_EMBEDDINGS_DIR, TRAIN_TARGETS_DIR, TEST_TARGETS_DIR
+    global TRAIN_EMBEDDINGS_DIR, TRAIN_TARGETS_DIR, TEST_EMBEDDINGS_DIR
     global MODEL_TYPE, EPOCHS, BATCH_SIZE, PATCH_SIZE, DEVICE
 
     args = parse_args()
@@ -144,6 +156,7 @@ def main():
     BASE_DIR = args.output_dir
     TRAIN_EMBEDDINGS_DIR = args.train_embeddings_dir
     TRAIN_TARGETS_DIR = args.train_targets_dir
+    TEST_EMBEDDINGS_DIR = args.test_submission_embeddings_dir
     EXPERIMENT_NAME = args.experiment_name
     BATCH_SIZE = args.batch_size
     PATCH_SIZE = args.patch_size
@@ -151,6 +164,7 @@ def main():
     DEVICE = torch.device(args.device)
 
     EXP_DIR = os.path.join(BASE_DIR, EXPERIMENT_NAME)
+    predictions_dir = os.path.join(EXP_DIR, "predictions" if args.predictions_subfolder is None else args.predictions_subfolder)
     VIZ_OUTPUT_DIR = os.path.join(EXP_DIR, "visualizations")
     BEST_MODEL_PATH = os.path.join(EXP_DIR, "model_best.pth")
     LAST_MODEL_PATH = os.path.join(EXP_DIR, "model_last.pth")
@@ -340,6 +354,25 @@ def main():
     component_loss_path = os.path.join(EXP_DIR, "component_losses.png")
     plt.savefig(component_loss_path)
     plt.close()
+
+    # Compute predictions for subission
+    if TEST_EMBEDDINGS_DIR != '' and os.path.exists(TEST_EMBEDDINGS_DIR):
+        print("Generating predictions for submission...")
+        test_ds = get_prediction_dataset(
+            predictions_dir=predictions_dir,
+            test_embeddings_dir=TEST_EMBEDDINGS_DIR, 
+            patch_size=PATCH_SIZE,
+            model_type=MODEL_TYPE)
+        best_model = load_model(
+            dataset=test_ds,
+            model_type=MODEL_TYPE,
+            model_path=BEST_MODEL_PATH
+        )
+        run_inference(best_model, test_ds, DEVICE, predictions_dir)
+    
+        zip_output_name = args.zip_output
+        if zip_output_name:
+            build_zip(predictions_dir, zip_output_name)
 
 if __name__ == "__main__":
     main()

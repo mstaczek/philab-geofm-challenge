@@ -53,6 +53,25 @@ def parse_args():
                         help="Zip name in submissions folder with all files from the predictions folder will be created.")
     return parser.parse_args()
 
+def get_prediction_dataset(predictions_dir, test_embeddings_dir, patch_size, model_type, max_samples=0, test_targets_dir=None):
+    os.makedirs(predictions_dir, exist_ok=True)
+
+    # --- Load data pairs ---
+    print(f"Loading file pairs from embeddings: {test_embeddings_dir}")
+    pairs = find_file_pairs(test_embeddings_dir, test_targets_dir)
+    if not pairs:
+        raise RuntimeError("No matching file pairs found. Check --test-embeddings-dir and --test-targets-dir.")
+    if max_samples > 0:
+        pairs = pairs[:max_samples]
+
+    # --- Dataset ---
+    is_lightunet = model_type.lower() == "lightunet"
+    if is_lightunet:
+        test_ds = PixelEmbeddingDataset(pairs, patch_size=patch_size, is_train=False)
+    else:
+        test_ds = LatentTokenDataset(pairs, patch_size=patch_size, scale_factor=16, is_train=False)
+    
+    return test_ds
 
 def run_inference(model, dataset, device, predictions_dir):
     """
@@ -89,6 +108,7 @@ def run_inference(model, dataset, device, predictions_dir):
 
 
 def build_zip(predictions_dir, zip_output_name):
+    predictions_dir = Path(predictions_dir)
     submission_dir = Path("submission")
     submission_dir.mkdir(exist_ok=True)
 
@@ -126,7 +146,14 @@ def build_zip(predictions_dir, zip_output_name):
 
 
 
-
+def load_model(dataset, model_type, model_path):
+    sample_img, _ = dataset[0]
+    model, selected_model = build_model(model_type, n_channels=sample_img.shape[0], n_classes=4)
+    model = model.to(DEVICE)
+    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+    model.eval()
+    print(f"Loaded model: {selected_model} from {model_path} (input channels={sample_img.shape[0]})")
+    return model
 
 def main():
     global DEVICE
@@ -140,29 +167,22 @@ def main():
 
     os.makedirs(predictions_dir, exist_ok=True)
 
-    # --- Load data pairs ---
-    print(f"Loading file pairs from embeddings: {args.test_embeddings_dir}")
-    pairs = find_file_pairs(args.test_embeddings_dir, args.test_targets_dir)
-    if not pairs:
-        raise RuntimeError("No matching file pairs found. Check --test-embeddings-dir and --test-targets-dir.")
-    if args.max_samples > 0:
-        pairs = pairs[:args.max_samples]
-
     # --- Dataset ---
-    is_lightunet = args.model_type.lower() == "lightunet"
-    if is_lightunet:
-        test_ds = PixelEmbeddingDataset(pairs, patch_size=args.patch_size, is_train=False)
-    else:
-        test_ds = LatentTokenDataset(pairs, patch_size=args.patch_size, scale_factor=16, is_train=False)
+    test_ds = get_prediction_dataset(
+        predictions_dir=predictions_dir,
+        test_embeddings_dir=args.test_embeddings_dir,
+        patch_size=args.patch_size,
+        model_type=args.model_type,
+        max_samples=args.max_samples,
+        test_targets_dir=args.test_targets_dir
+    )
 
     # --- Load model ---
-    sample_img, _ = test_ds[0]
-    model, selected_model = build_model(args.model_type, n_channels=sample_img.shape[0], n_classes=4)
-    model = model.to(DEVICE)
-    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
-    model.eval()
-    print(f"Loaded model: {selected_model} from {model_path} (input channels={sample_img.shape[0]})")
-
+    model = load_model(
+        dataset=test_ds,
+        model_type=args.model_type,
+        model_path=model_path
+    )
 
     # --- Inference ---
     run_inference(model, test_ds, DEVICE, predictions_dir)
@@ -170,7 +190,7 @@ def main():
     # --- Zip (optional) ---
     zip_output_path = args.zip_output
     if zip_output_path:
-        build_zip(Path(predictions_dir), zip_output_path)
+        build_zip(predictions_dir, zip_output_path)
 
 
 
