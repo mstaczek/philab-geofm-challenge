@@ -64,6 +64,12 @@ Internally, it handles train/val splitting of the input data BUT by splitting da
 python train.py --model-type decoder_residual --output-dir runs --train-embeddings-dir data/terramind_s1_train_test_split/test/embeddings --train-targets-dir data/terramind_s1_train_test_split/test/labels --experiment-name test_terramind_s1_decoder_residual_v2 --epochs 10 --batch-size 16 --patch-size 256 --device cuda
 ```
 
+Run training and predictions and saving submission to zip all in one:
+
+```bash
+python train.py --model-type lightunet --output-dir runs --train-embeddings-dir data/embed2heights/data/train/alphaearth_emb --train-targets-dir data/embed2heights/data/train/labels --experiment-name alphaearth_emb_v3_50epochs --epochs 50 --batch-size 4 --patch-size 256 --device cuda --test-submission-embeddings-dir data/embed2heights/data/test/alphaearth_test_emb --predictions-subfolder predictions_submission --zip-output submission_50_epochs_alphaearth.zip
+```
+
 ## Run predict
 
 Save a few train predictions
