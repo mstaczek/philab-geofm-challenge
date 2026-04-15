@@ -98,6 +98,8 @@ def build_zip(predictions_dir, zip_output_name):
 
 
 
+
+
 def main():
     global DEVICE
     args = parse_args()
@@ -145,6 +147,10 @@ def main():
             # Denormalize height channel: model output [0,1] -> physical meters
             pred_np[3] = pred_np[3] * HEIGHT_NORM_CONSTANT
 
+            # Clip percentages to 0-1, and height to 0-1000
+            pred_np[[0,1,2],:,:] = np.clip(pred_np[[0,1,2],:,:], 0, 1)
+            pred_np[[3],:,:] = np.clip(pred_np[[3],:,:], 0, 1000)
+            
             emb_path, _ = test_ds.file_pairs[i]
             core_id = _normalize_core_id(emb_path, strip_year_suffix=False)
 
