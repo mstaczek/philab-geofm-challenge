@@ -19,6 +19,8 @@ def _normalize_core_id(filename, strip_year_suffix=True):
     # 1. Strip label prefix
     if base.startswith("label_"):
         base = base[len("label_"):]
+    if base.startswith("emb_"):
+        base = base[len("emb_"):]
 
     # 2. Strip embedding prefixes
     for prefix in ("gee_emb_", "tessera_emb_", "s2_", "s1_"):
@@ -27,10 +29,12 @@ def _normalize_core_id(filename, strip_year_suffix=True):
             break
 
     # 3. Strip trailing embedding suffixes (if any)
-    if base.endswith("_embedding"):
-        base = base[:-len("_embedding")]
     if base.endswith("_embeddings"):
         base = base[:-len("_embeddings")]
+    if base.endswith("_quantized"):
+        base = base[:-len("_quantized")]
+    if base.endswith("_merged"):
+        base = base[:-len("_merged")]
 
     if strip_year_suffix:
         # 4. Strip trailing year suffixes (e.g., '_2021', '_2023')
