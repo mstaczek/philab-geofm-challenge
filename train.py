@@ -106,42 +106,92 @@ def parse_args():
 
 
 
-# def visualize_results(model, dataset, num_samples=3):
-#     """Generates sample visualizations from the dataset."""
-#     model.eval()
-#     indices = random.sample(range(len(dataset)), min(num_samples, len(dataset)))
-#     target_names = ["% Building", "% Vegetation", "% Water", "nDSM Height (m)"]
+def visualize_results(model, dataset, num_samples=3):
+    """Generates sample visualizations from the dataset."""
+    model.eval()
+    indices = random.sample(range(len(dataset)), min(num_samples, len(dataset)))
+    target_names = ["% Building", "% Vegetation", "% Water", "nDSM Height (m)"]
 
-#     with torch.no_grad():
-#         for i, idx in enumerate(indices):
-#             img_tensor, target_tensor = dataset[idx]
-#             input_batch = img_tensor.unsqueeze(0).to(DEVICE)
-#             output_batch = model(input_batch)
+    with torch.no_grad():
+        for i, idx in enumerate(indices):
+            img_tensor, target_tensor = dataset[idx]
+            input_batch = img_tensor.unsqueeze(0).to(DEVICE)
+            target_batch = target_tensor.unsqueeze(0).to(DEVICE)
 
-#             target_batch = align_target_to_output(target_tensor.unsqueeze(0).to(DEVICE), output_batch)
+            output_batch = model(input_batch)
 
-#             pred = output_batch.squeeze().cpu().numpy()
-#             true = target_batch.squeeze().cpu().numpy()
+            pred = output_batch.squeeze().cpu().numpy()
+            true = target_batch.squeeze().cpu().numpy()
 
-#             # UN-NORMALIZE HEIGHT FOR VISUALIZATION
-#             pred[3] = pred[3] * HEIGHT_NORM_CONSTANT
-#             true[3] = true[3] * HEIGHT_NORM_CONSTANT
+            # UN-NORMALIZE HEIGHT FOR VISUALIZATION
+            pred[3] = pred[3] * HEIGHT_NORM_CONSTANT
+            true[3] = true[3] * HEIGHT_NORM_CONSTANT
 
-#             fig, axes = plt.subplots(2, 4, figsize=(20, 10))
-#             for c in range(4):
-#                 vmin, vmax = (0, 1) if c < 3 else (0, HEIGHT_NORM_CONSTANT)
-#                 axes[0, c].imshow(true[c], cmap='viridis', vmin=vmin, vmax=vmax)
-#                 axes[0, c].set_title(f"True {target_names[c]}")
-#                 axes[0, c].axis('off')
+            fig, axes = plt.subplots(2, 4, figsize=(20, 10))
+            for c in range(4):
+                vmin, vmax = (0, 1) if c < 3 else (0, HEIGHT_NORM_CONSTANT)
+                axes[0, c].imshow(true[c], cmap='viridis', vmin=vmin, vmax=vmax)
+                axes[0, c].set_title(f"True {target_names[c]}")
+                axes[0, c].axis('off')
 
-#                 axes[1, c].imshow(pred[c], cmap='viridis', vmin=vmin, vmax=vmax)
-#                 axes[1, c].set_title(f"Pred {target_names[c]}")
-#                 axes[1, c].axis('off')
+                axes[1, c].imshow(pred[c], cmap='viridis', vmin=vmin, vmax=vmax)
+                axes[1, c].set_title(f"Pred {target_names[c]}")
+                axes[1, c].axis('off')
 
-#             plt.suptitle(f"{model.__class__.__name__} Prediction (Sample {i})")
-#             plt.tight_layout()
-#             plt.savefig(os.path.join(VIZ_OUTPUT_DIR, f"viz_{i}.png"))
-#             plt.close()
+            plt.suptitle(f"{model.__class__.__name__} Prediction (Sample {i})")
+            plt.tight_layout()
+            plt.savefig(os.path.join(VIZ_OUTPUT_DIR, f"viz_{i}.png"))
+            plt.close()
+
+def generate_plots(train_losses, val_losses, train_mae_losses, val_mae_losses, train_ssim_losses, val_ssim_losses, train_grad_losses, val_grad_losses, train_tversky_losses, val_tversky_losses):
+    plt.figure()
+    plt.plot(train_losses, label='Train Loss')
+    plt.plot(val_losses, label='Validation Loss')
+    plt.title(f"Training Loss Curve ({EXPERIMENT_NAME})")
+    plt.legend()
+    plt.savefig(LOSS_CURVE_PATH)
+    plt.close()
+
+    # Plot individual loss components
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    
+    axes[0, 0].plot(train_mae_losses, label='Train', linewidth=2)
+    axes[0, 0].plot(val_mae_losses, label='Val', linewidth=2)
+    axes[0, 0].set_title('MAE Loss', fontsize=12, fontweight='bold')
+    axes[0, 0].set_xlabel('Epoch')
+    axes[0, 0].set_ylabel('Loss')
+    axes[0, 0].legend()
+    axes[0, 0].grid(True, alpha=0.3)
+    
+    axes[0, 1].plot(train_ssim_losses, label='Train', linewidth=2)
+    axes[0, 1].plot(val_ssim_losses, label='Val', linewidth=2)
+    axes[0, 1].set_title('SSIM Loss', fontsize=12, fontweight='bold')
+    axes[0, 1].set_xlabel('Epoch')
+    axes[0, 1].set_ylabel('Loss')
+    axes[0, 1].legend()
+    axes[0, 1].grid(True, alpha=0.3)
+    
+    axes[1, 0].plot(train_grad_losses, label='Train', linewidth=2)
+    axes[1, 0].plot(val_grad_losses, label='Val', linewidth=2)
+    axes[1, 0].set_title('Gradient Loss', fontsize=12, fontweight='bold')
+    axes[1, 0].set_xlabel('Epoch')
+    axes[1, 0].set_ylabel('Loss')
+    axes[1, 0].legend()
+    axes[1, 0].grid(True, alpha=0.3)
+    
+    axes[1, 1].plot(train_tversky_losses, label='Train', linewidth=2)
+    axes[1, 1].plot(val_tversky_losses, label='Val', linewidth=2)
+    axes[1, 1].set_title('Tversky Loss', fontsize=12, fontweight='bold')
+    axes[1, 1].set_xlabel('Epoch')
+    axes[1, 1].set_ylabel('Loss')
+    axes[1, 1].legend()
+    axes[1, 1].grid(True, alpha=0.3)
+    
+    plt.suptitle(f"Component Losses ({EXPERIMENT_NAME})", fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    component_loss_path = os.path.join(EXP_DIR, "component_losses.png")
+    plt.savefig(component_loss_path)
+    plt.close()
 
 
 def main():
@@ -306,56 +356,20 @@ def main():
     print("--- 3. Saving & Visualizing ---")
     torch.save(model.state_dict(), LAST_MODEL_PATH)
 
-    plt.figure()
-    plt.plot(train_losses, label='Train Loss')
-    plt.plot(val_losses, label='Validation Loss')
-    plt.title(f"Training Loss Curve ({EXPERIMENT_NAME})")
-    plt.legend()
-    plt.savefig(LOSS_CURVE_PATH)
-    plt.close()
+    generate_plots(train_losses=train_losses,
+                val_losses=val_losses,
+                train_mae_losses=train_mae_losses,
+                val_mae_losses=val_mae_losses,
+                train_ssim_losses=train_ssim_losses,
+                val_ssim_losses=val_ssim_losses,
+                train_grad_losses=train_grad_losses,
+                val_grad_losses=val_grad_losses,
+                train_tversky_losses=train_tversky_losses,
+                val_tversky_losses=val_tversky_losses)
 
-    # Plot individual loss components
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    
-    axes[0, 0].plot(train_mae_losses, label='Train', linewidth=2)
-    axes[0, 0].plot(val_mae_losses, label='Val', linewidth=2)
-    axes[0, 0].set_title('MAE Loss', fontsize=12, fontweight='bold')
-    axes[0, 0].set_xlabel('Epoch')
-    axes[0, 0].set_ylabel('Loss')
-    axes[0, 0].legend()
-    axes[0, 0].grid(True, alpha=0.3)
-    
-    axes[0, 1].plot(train_ssim_losses, label='Train', linewidth=2)
-    axes[0, 1].plot(val_ssim_losses, label='Val', linewidth=2)
-    axes[0, 1].set_title('SSIM Loss', fontsize=12, fontweight='bold')
-    axes[0, 1].set_xlabel('Epoch')
-    axes[0, 1].set_ylabel('Loss')
-    axes[0, 1].legend()
-    axes[0, 1].grid(True, alpha=0.3)
-    
-    axes[1, 0].plot(train_grad_losses, label='Train', linewidth=2)
-    axes[1, 0].plot(val_grad_losses, label='Val', linewidth=2)
-    axes[1, 0].set_title('Gradient Loss', fontsize=12, fontweight='bold')
-    axes[1, 0].set_xlabel('Epoch')
-    axes[1, 0].set_ylabel('Loss')
-    axes[1, 0].legend()
-    axes[1, 0].grid(True, alpha=0.3)
-    
-    axes[1, 1].plot(train_tversky_losses, label='Train', linewidth=2)
-    axes[1, 1].plot(val_tversky_losses, label='Val', linewidth=2)
-    axes[1, 1].set_title('Tversky Loss', fontsize=12, fontweight='bold')
-    axes[1, 1].set_xlabel('Epoch')
-    axes[1, 1].set_ylabel('Loss')
-    axes[1, 1].legend()
-    axes[1, 1].grid(True, alpha=0.3)
-    
-    plt.suptitle(f"Component Losses ({EXPERIMENT_NAME})", fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    component_loss_path = os.path.join(EXP_DIR, "component_losses.png")
-    plt.savefig(component_loss_path)
-    plt.close()
+    visualize_results(model, val_ds, num_samples=5)
 
-    # Compute predictions for subission
+    print("--- 4. Compute predictions for submission ---")
     if TEST_EMBEDDINGS_DIR != '' and os.path.exists(TEST_EMBEDDINGS_DIR):
         print("Generating predictions for submission...")
         test_ds = get_prediction_dataset(
