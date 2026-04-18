@@ -16,88 +16,31 @@ from core.dataset import PixelEmbeddingDataset, LatentTokenDataset, find_file_pa
 from core.losses import ImprovedCompositeLoss
 from predict import get_prediction_dataset, run_inference, load_model, build_zip
 
-# --- 1. EXPERIMENT TRACKING ---
-EXPERIMENT_NAME = "terramid_run02/"
-BASE_DIR = "./runs"
-EXP_DIR = os.path.join(BASE_DIR, EXPERIMENT_NAME)
-VIZ_OUTPUT_DIR = os.path.join(EXP_DIR, "visualizations")
-
-# Paths for saving models and plots
-BEST_MODEL_PATH = os.path.join(EXP_DIR, "model_best.pth")
-LAST_MODEL_PATH = os.path.join(EXP_DIR, "model_last.pth")
-LOSS_CURVE_PATH = os.path.join(EXP_DIR, "loss_curve.png")
-CONFIG_LOG_PATH = os.path.join(EXP_DIR, "training_params.txt")
-
-# --- 2. CONFIGURATION ---
-# TRAIN_EMBEDDINGS_DIR = "../../emb2heights/data/gee_emb_aligned_v2/"
-
-TRAIN_EMBEDDINGS_DIR = "../../emb2heights/data/gee_emb_aligned_v2"
-TRAIN_TARGETS_DIR = "../../emb2heights/data/patches_labels_10m/"
-
-TEST_EMBEDDINGS_DIR = ''
-
-BATCH_SIZE = 32
-PATCH_SIZE = 256
-EPOCHS = 30
-LEARNING_RATE = 2e-4
-WEIGHT_DECAY = 1e-4  # L2 Regularization
-VAL_SPLIT = 0.2
-LAMBDAS = [1.0, 0.5, 0.5, 2.0]  # [MAE, SSIM, Gradient, Structure/Tversky]
-RANDOM_SEED = 42
-MODEL_TYPE = "auto"  # one of: auto, lightunet, decoder_residual
-
-if torch.cuda.is_available():
-    DEVICE = torch.device("cuda")
-elif torch.backends.mps.is_available():
-    DEVICE = torch.device("mps")
-else:
-    DEVICE = torch.device("cpu")
-
-torch.manual_seed(RANDOM_SEED)
-np.random.seed(RANDOM_SEED)
-random.seed(RANDOM_SEED)
 
 
-def save_experiment_config():
+def save_experiment_config(*, params_dict, config_log_path):
     """Logs all hyperparameters to a text file in the experiment folder."""
-    os.makedirs(EXP_DIR, exist_ok=True)
-    os.makedirs(VIZ_OUTPUT_DIR, exist_ok=True)
-
-    with open(CONFIG_LOG_PATH, "w") as f:
-        f.write(f"--- EXPERIMENT: {EXPERIMENT_NAME} ---\n")
-        f.write(f"OUTPUT_DIR: {BASE_DIR}\n")
-        f.write(f"BATCH_SIZE: {BATCH_SIZE}\n")
-        f.write(f"PATCH_SIZE: {PATCH_SIZE}\n")
-        f.write(f"EPOCHS: {EPOCHS}\n")
-        f.write(f"LEARNING_RATE: {LEARNING_RATE}\n")
-        f.write(f"WEIGHT_DECAY: {WEIGHT_DECAY}\n")
-        f.write(f"LOSS LAMBDAS: {LAMBDAS}\n")
-        f.write(f"MODEL_TYPE: {MODEL_TYPE}\n")
-        f.write(f"TRAIN_EMBEDDINGS_DIR: {TRAIN_EMBEDDINGS_DIR}\n")
-        f.write(f"TRAIN_TARGETS_DIR: {TRAIN_TARGETS_DIR}\n")
-        f.write(f"VAL_SPLIT: {VAL_SPLIT}\n")
-        f.write(f"OPTIMIZER: AdamW\n")
-        f.write(f"SCHEDULER: ReduceLROnPlateau (factor=0.5, patience=2)\n")
-        f.write(f"GRADIENT CLIPPING: max_norm=1.0\n")
-    print(f"📁 Created experiment folder: {EXP_DIR}")
-
+    with open(config_log_path, "w") as f:
+        for key, value in params_dict.items():
+            f.write(f"{key}: {value}\n")
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train emb2heights baseline models")
-    parser.add_argument("--model-type", type=str, default=MODEL_TYPE, choices=["auto", "lightunet", "decoder_residual"])
-    parser.add_argument("--output-dir", type=str, default=BASE_DIR)
-    parser.add_argument("--train-embeddings-dir", type=str, default=TRAIN_EMBEDDINGS_DIR)
-    parser.add_argument("--train-targets-dir", type=str, default=TRAIN_TARGETS_DIR)
-    parser.add_argument("--experiment-name", type=str, default=EXPERIMENT_NAME)
-    parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
-    parser.add_argument("--patch-size", type=int, default=PATCH_SIZE)
-    parser.add_argument("--epochs", type=int, default=EPOCHS)
+    parser.add_argument("--model-type", type=str, default="lightunet", choices=["auto", "lightunet", "decoder_residual"])
+    parser.add_argument("--output-dir", type=str, default="./runs")
+    parser.add_argument("--train-embeddings-dir", type=str)
+    parser.add_argument("--train-targets-dir", type=str)
+    parser.add_argument("--experiment-name", type=str, default="experiment_1")
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--patch-size", type=int, default=256)
+    parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--random-seed", type=int, default=42)
+    
 
-
-    parser.add_argument("--test-submission-embeddings-dir", type=str, default=TEST_EMBEDDINGS_DIR,
+    parser.add_argument("--test-submission-embeddings-dir", type=str, default='',
                         help="Directory containing embedding .tif files.")
-    parser.add_argument("--predictions-subfolder", type=str, default=None,
+    parser.add_argument("--predictions-subfolder", type=str, default="predictions",
                         help="Output directory for .npy predictions. Defaults to <base-dir>/<experiment-name>/predictions.")
     parser.add_argument("--zip-output", type=str, default=None, 
                         help="Zip name in submissions folder with all files from the predictions folder will be created.")
@@ -105,20 +48,30 @@ def parse_args():
     return parser.parse_args()
 
 
-def run_training_loop(model, train_loader, val_loader, criterion, optimizer, scheduler):
+def run_training_loop(
+        *,
+        model, 
+        train_loader, 
+        val_loader, 
+        criterion, 
+        optimizer, 
+        scheduler,
+        device,
+        epochs,
+        best_model_path):
     train_losses, val_losses = [], []
     train_mae_losses, train_ssim_losses, train_grad_losses, train_tversky_losses = [], [], [], []
 
     # --- TRAINING LOOP ---
-    for epoch in range(EPOCHS):
+    for epoch in range(epochs):
         model.train()
         running_loss = 0.0
         train_samples_seen = 0
-        train_components = torch.zeros(4).to(DEVICE)
+        train_components = torch.zeros(4).to(device)
 
-        train_pbar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{EPOCHS} [train]", leave=False)
+        train_pbar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs} [train]", leave=False)
         for imgs, targets in train_pbar:
-            imgs, targets = imgs.to(DEVICE), targets.to(DEVICE)
+            imgs, targets = imgs.to(device), targets.to(device)
             optimizer.zero_grad()
             outputs = model(imgs)
 
@@ -151,15 +104,15 @@ def run_training_loop(model, train_loader, val_loader, criterion, optimizer, sch
         # --- VALIDATION LOOP ---
         model.eval()
         val_running_loss = 0.0
-        val_components = torch.zeros(4).to(DEVICE)
+        val_components = torch.zeros(4).to(device)
         val_samples_seen = 0
         val_mae_losses, val_ssim_losses, val_grad_losses, val_tversky_losses = [], [], [], []
         best_val_loss = float('inf')
 
         with torch.no_grad():
-            val_pbar = tqdm(val_loader, desc=f"Epoch {epoch + 1}/{EPOCHS} [val]", leave=False)
+            val_pbar = tqdm(val_loader, desc=f"Epoch {epoch + 1}/{epochs} [val]", leave=False)
             for imgs, targets in val_pbar:
-                imgs, targets = imgs.to(DEVICE), targets.to(DEVICE)
+                imgs, targets = imgs.to(device), targets.to(device)
                 outputs = model(imgs)
 
                 loss, l_mae, l_ssim, l_grad, l_tversky = criterion(outputs, targets)
@@ -187,15 +140,17 @@ def run_training_loop(model, train_loader, val_loader, criterion, optimizer, sch
 
         if epoch_val_loss < best_val_loss:
             best_val_loss = epoch_val_loss
-            torch.save(model.state_dict(), BEST_MODEL_PATH)
+            torch.save(model.state_dict(), best_model_path)
             print(f"   >> Model Saved! (New Best Val Loss: {best_val_loss:.4f})")
 
-        print(f"Epoch {epoch + 1}/{EPOCHS} | Train: {epoch_loss:.4f} | Val: {epoch_val_loss:.4f}")
+        print(f"Epoch {epoch + 1}/{epochs} | Train: {epoch_loss:.4f} | Val: {epoch_val_loss:.4f}")
         print(f"   >> Val Breakdown: MAE:{epoch_comp[0]:.3f} |"
               " SSIM:{epoch_comp[1]:.3f} |"
               " Grad:{epoch_comp[2]:.3f} |"
               " Tversky:{epoch_comp[3]:.3f}")
+                    
         return {
+            "model": model,
             "train_losses": train_losses,
             "val_losses": val_losses,
             "train_mae_losses": train_mae_losses,
@@ -209,7 +164,13 @@ def run_training_loop(model, train_loader, val_loader, criterion, optimizer, sch
         }
 
 
-def visualize_results(model, dataset, num_samples=3):
+def visualize_results(
+        *,
+        model, 
+        dataset, 
+        device,
+        viz_output_dir,
+        num_samples=3):
     """Generates sample visualizations from the dataset."""
     model.eval()
     indices = random.sample(range(len(dataset)), min(num_samples, len(dataset)))
@@ -218,8 +179,8 @@ def visualize_results(model, dataset, num_samples=3):
     with torch.no_grad():
         for i, idx in enumerate(indices):
             img_tensor, target_tensor = dataset[idx]
-            input_batch = img_tensor.unsqueeze(0).to(DEVICE)
-            target_batch = target_tensor.unsqueeze(0).to(DEVICE)
+            input_batch = img_tensor.unsqueeze(0).to(device)
+            target_batch = target_tensor.unsqueeze(0).to(device)
 
             output_batch = model(input_batch)
 
@@ -243,16 +204,34 @@ def visualize_results(model, dataset, num_samples=3):
 
             plt.suptitle(f"{model.__class__.__name__} Prediction (Sample {i})")
             plt.tight_layout()
-            plt.savefig(os.path.join(VIZ_OUTPUT_DIR, f"viz_{i}.png"))
+            plt.savefig(os.path.join(viz_output_dir, f"viz_{i}.png"))
             plt.close()
 
-def generate_plots(train_losses, val_losses, train_mae_losses, val_mae_losses, train_ssim_losses, val_ssim_losses, train_grad_losses, val_grad_losses, train_tversky_losses, val_tversky_losses):
+def generate_plots(
+        *,
+        train_losses, 
+        val_losses, 
+        train_mae_losses, 
+        val_mae_losses, 
+        train_ssim_losses, 
+        val_ssim_losses, 
+        train_grad_losses, 
+        val_grad_losses, 
+        train_tversky_losses, 
+        val_tversky_losses,
+        experiment_name,
+        exp_dir):
+    
+    combined_loss_output_path = os.path.join(exp_dir, "loss_curve.png")
+    component_loss_output_path = os.path.join(exp_dir, "component_losses.png")
+
+    # Plot combined loss curve
     plt.figure()
     plt.plot(train_losses, label='Train Loss')
     plt.plot(val_losses, label='Validation Loss')
-    plt.title(f"Training Loss Curve ({EXPERIMENT_NAME})")
+    plt.title(f"Training Loss Curve ({experiment_name})")
     plt.legend()
-    plt.savefig(LOSS_CURVE_PATH)
+    plt.savefig(combined_loss_output_path)
     plt.close()
 
     # Plot individual loss components
@@ -290,116 +269,203 @@ def generate_plots(train_losses, val_losses, train_mae_losses, val_mae_losses, t
     axes[1, 1].legend()
     axes[1, 1].grid(True, alpha=0.3)
     
-    plt.suptitle(f"Component Losses ({EXPERIMENT_NAME})", fontsize=14, fontweight='bold')
+    plt.suptitle(f"Component Losses ({experiment_name})", fontsize=14, fontweight='bold')
     plt.tight_layout()
-    component_loss_path = os.path.join(EXP_DIR, "component_losses.png")
-    plt.savefig(component_loss_path)
+    plt.savefig(component_loss_output_path)
     plt.close()
 
-
-def main():
-    print("Starting main() function")
-    global BASE_DIR, EXPERIMENT_NAME, EXP_DIR, VIZ_OUTPUT_DIR
-    global BEST_MODEL_PATH, LAST_MODEL_PATH, LOSS_CURVE_PATH, CONFIG_LOG_PATH
-    global TRAIN_EMBEDDINGS_DIR, TRAIN_TARGETS_DIR, TEST_EMBEDDINGS_DIR
-    global MODEL_TYPE, EPOCHS, BATCH_SIZE, PATCH_SIZE, DEVICE
-
-    args = parse_args()
-    MODEL_TYPE = args.model_type
-    BASE_DIR = args.output_dir
-    TRAIN_EMBEDDINGS_DIR = args.train_embeddings_dir
-    TRAIN_TARGETS_DIR = args.train_targets_dir
-    TEST_EMBEDDINGS_DIR = args.test_submission_embeddings_dir
-    EXPERIMENT_NAME = args.experiment_name
-    BATCH_SIZE = args.batch_size
-    PATCH_SIZE = args.patch_size
-    EPOCHS = args.epochs
-    DEVICE = torch.device(args.device)
-
-    EXP_DIR = os.path.join(BASE_DIR, EXPERIMENT_NAME)
-    predictions_dir = os.path.join(EXP_DIR, "predictions" if args.predictions_subfolder is None else args.predictions_subfolder)
-    VIZ_OUTPUT_DIR = os.path.join(EXP_DIR, "visualizations")
-    BEST_MODEL_PATH = os.path.join(EXP_DIR, "model_best.pth")
-    LAST_MODEL_PATH = os.path.join(EXP_DIR, "model_last.pth")
-    LOSS_CURVE_PATH = os.path.join(EXP_DIR, "loss_curve.png")
-    CONFIG_LOG_PATH = os.path.join(EXP_DIR, "training_params.txt")
-
-    save_experiment_config()
-
-    print("--- 1. Data Setup ---")
-    all_train_pairs = find_file_pairs(TRAIN_EMBEDDINGS_DIR, TRAIN_TARGETS_DIR)
+def get_dataloaders(
+        train_embeddings_dir, 
+        train_targets_dir, 
+        val_split, 
+        random_seed, 
+        model_type, 
+        patch_size, 
+        batch_size):
+    all_train_pairs = find_file_pairs(train_embeddings_dir, train_targets_dir)
     if len(all_train_pairs) == 0:
         raise ValueError(
             "No training (embedding, label) pairs found. "
-            f"train_embeddings_dir='{TRAIN_EMBEDDINGS_DIR}', "
-            f"train_targets_dir='{TRAIN_TARGETS_DIR}'. "
+            f"train_embeddings_dir='{train_embeddings_dir}', "
+            f"train_targets_dir='{train_targets_dir}'. "
             "Check filename conventions and directory paths."
         )
     train_pairs, val_pairs = train_test_split(
-        all_train_pairs, test_size=VAL_SPLIT, random_state=RANDOM_SEED
+        all_train_pairs, test_size=val_split, random_state=random_seed
     )
 
     # In train.py:
-    if MODEL_TYPE == "lightunet": # provided dataset have shapes 256x256x(64 or 128)
-        train_ds = PixelEmbeddingDataset(train_pairs, patch_size=PATCH_SIZE, is_train=True)
-        val_ds = PixelEmbeddingDataset(val_pairs, patch_size=PATCH_SIZE, is_train=False)
+    if model_type == "lightunet": # provided dataset have shapes 256x256x(64 or 128)
+        train_ds = PixelEmbeddingDataset(train_pairs, patch_size=patch_size, is_train=True)
+        val_ds = PixelEmbeddingDataset(val_pairs, patch_size=patch_size, is_train=False)
+    elif model_type == "decoder_residual": # provided datasets have then shape 16x16x768
+        # For the decoders (TerraMind/Thor)
+        scale_factor = 16
+        train_ds = LatentTokenDataset(train_pairs, patch_size=patch_size, scale_factor=scale_factor, is_train=True)
+        val_ds = LatentTokenDataset(val_pairs, patch_size=patch_size, scale_factor=scale_factor, is_train=False)
     else:
-        # For the decoders (TerraMind/Thor) # provided datasets have then shape 16x16x768
-        train_ds = LatentTokenDataset(train_pairs, patch_size=PATCH_SIZE, scale_factor=16, is_train=True)
-        val_ds = LatentTokenDataset(val_pairs, patch_size=PATCH_SIZE, scale_factor=16, is_train=False)
+        raise ValueError(f"Unsupported model type: {model_type}.")
 
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=2)
-    val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=2)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
 
-    sample_img, _ = train_ds[0]
-    n_channels, n_classes = sample_img.shape[0], 4
+    n_channels = train_loader.dataset[0][0].shape[0] # count of channels from the first sample in the dataset
+
+    return train_loader, val_loader, n_channels
+
+def set_device_and_seeds(device_str, random_seed):
+    if device_str == "cuda" and torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif device_str == "mps" and torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
+    print("Pytorch device: ", device)
+
+    torch.manual_seed(random_seed)
+    np.random.seed(random_seed)
+    random.seed(random_seed)
+
+    return device
+
+def main():
+    print("Starting main() function")
+
+    args = parse_args()
+
+    model_type = args.model_type
+    base_runs_dir = args.output_dir
+    train_embeddings_dir = args.train_embeddings_dir
+    train_targets_dir = args.train_targets_dir
+    test_embeddings_dir = args.test_submission_embeddings_dir
+    experiment_name = args.experiment_name
+    batch_size = args.batch_size
+    patch_size = args.patch_size
+    epochs = args.epochs
+
+    device = set_device_and_seeds(args.device, args.random_seed)
+
+    lambdas = [1.0, 0.5, 0.5, 2.0]  # [MAE, SSIM, Gradient, Structure/Tversky]
+    learning_rate = 2e-4
+    weight_decay = 1e-4  # L2 Regularization
+    val_split_fraction = 0.2
+    random_seed = 42
+
+    experiment_dir = os.path.join(base_runs_dir, experiment_name)
+    predictions_dir = os.path.join(experiment_dir, args.predictions_subfolder)
+    viz_output_dir = os.path.join(experiment_dir, "visualizations")
+    best_model_path = os.path.join(experiment_dir, "model_best.pth")
+    last_model_path = os.path.join(experiment_dir, "model_last.pth")
+    config_log_path = os.path.join(experiment_dir, "training_params.txt")
+
+    os.makedirs(experiment_dir, exist_ok=True)
+    os.makedirs(predictions_dir, exist_ok=True)
+    os.makedirs(viz_output_dir, exist_ok=True)
+    print(f"📁 Created experiment folder: {experiment_dir}")
+
+    params_dict = {
+        "model_type": args.model_type,
+        "base_dir": args.output_dir,
+        "train_embeddings_dir": args.train_embeddings_dir,
+        "train_targets_dir": args.train_targets_dir,
+        "test_embeddings_dir": args.test_submission_embeddings_dir,
+        "train_val_split": val_split_fraction,
+        "predictions_subfolder": args.predictions_subfolder,
+        "experiment_name": args.experiment_name,
+        "batch_size": args.batch_size,
+        "patch_size": args.patch_size,
+        "epochs": args.epochs,
+        "device": args.device,
+        "composite_loss_lambdas": lambdas,
+        "learning_rate": learning_rate,
+        "weight_decay": weight_decay,
+        "epochs": epochs,
+        "random_seed": random_seed,
+        "optimizer": "AdamW",
+        "scheduler": "ReduceLROnPlateau (factor=0.5, patience=2)",
+        "gradient_clipping": "max_norm=1.0"
+    }
+
+    save_experiment_config(params_dict=params_dict, config_log_path=config_log_path)
+
+    print("--- 1. Data Setup ---")
+    train_loader, val_loader, n_channels = get_dataloaders(
+        train_embeddings_dir=train_embeddings_dir, 
+        train_targets_dir=train_targets_dir, 
+        val_split=val_split_fraction, 
+        random_seed=random_seed, 
+        model_type=model_type, 
+        patch_size=patch_size, 
+        batch_size=batch_size
+    )
 
     print("--- 2. Model Init ---")
-    model, selected_model = build_model(MODEL_TYPE, n_channels, n_classes)
-    model = model.to(DEVICE)
+    n_classes = 4
+    model, selected_model = build_model(model_type, n_channels, n_classes)
+    model = model.to(device)
     print(f"Using model: {selected_model} (input channels={n_channels})")
 
-    # NEW: AdamW with Weight Decay
-    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
-
-    # NEW: Aggressive Scheduler
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    # Aggressive Scheduler
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=2)
-    criterion = ImprovedCompositeLoss(lambdas=LAMBDAS).to(DEVICE)
+    
+    criterion = ImprovedCompositeLoss(lambdas=lambdas).to(device)
 
-    print(f"Starting training on {DEVICE}...")
+    print(f"Starting training on {device}...")
 
-    training_results = run_training_loop(model, train_loader, val_loader, criterion, optimizer, scheduler)
+    training_results = run_training_loop(
+        model=model, 
+        train_loader=train_loader, 
+        val_loader=val_loader, 
+        criterion=criterion, 
+        optimizer=optimizer, 
+        scheduler=scheduler, 
+        device=device,
+        epochs=epochs,
+        best_model_path=best_model_path
+    )
+    torch.save(model.state_dict(), last_model_path)
 
     print("--- 3. Saving & Visualizing ---")
-    torch.save(model.state_dict(), LAST_MODEL_PATH)
 
-    generate_plots(train_losses=training_results["train_losses"],
-                val_losses=training_results["val_losses"],
-                train_mae_losses=training_results["train_mae_losses"],
-                val_mae_losses=training_results["val_mae_losses"],
-                train_ssim_losses=training_results["train_ssim_losses"],
-                val_ssim_losses=training_results["val_ssim_losses"],
-                train_grad_losses=training_results["train_grad_losses"],
-                val_grad_losses=training_results["val_grad_losses"],
-                train_tversky_losses=training_results["train_tversky_losses"],
-                val_tversky_losses=training_results["val_tversky_losses"])
+    generate_plots(
+        train_losses=training_results["train_losses"],
+        val_losses=training_results["val_losses"],
+        train_mae_losses=training_results["train_mae_losses"],
+        val_mae_losses=training_results["val_mae_losses"],
+        train_ssim_losses=training_results["train_ssim_losses"],
+        val_ssim_losses=training_results["val_ssim_losses"],
+        train_grad_losses=training_results["train_grad_losses"],
+        val_grad_losses=training_results["val_grad_losses"],
+        train_tversky_losses=training_results["train_tversky_losses"],
+        val_tversky_losses=training_results["val_tversky_losses"],
+        experiment_name=experiment_name,
+        exp_dir=experiment_dir
+    )
 
-    visualize_results(model, val_ds, num_samples=5)
+    visualize_results(
+        model=training_results["model"],
+        dataset=val_loader.dataset, 
+        device=device,
+        viz_output_dir=viz_output_dir,
+        num_samples=5
+    )
 
     print("--- 4. Compute predictions for submission ---")
-    if TEST_EMBEDDINGS_DIR != '' and os.path.exists(TEST_EMBEDDINGS_DIR):
+    if test_embeddings_dir != '' and os.path.exists(test_embeddings_dir):
         print("Generating predictions for submission...")
         test_ds = get_prediction_dataset(
             predictions_dir=predictions_dir,
-            test_embeddings_dir=TEST_EMBEDDINGS_DIR, 
-            patch_size=PATCH_SIZE,
-            model_type=MODEL_TYPE)
+            test_embeddings_dir=test_embeddings_dir, 
+            patch_size=patch_size,
+            model_type=model_type
+        )
         best_model = load_model(
             dataset=test_ds,
-            model_type=MODEL_TYPE,
-            model_path=BEST_MODEL_PATH
+            model_type=model_type,
+            model_path=best_model_path
         )
-        run_inference(best_model, test_ds, DEVICE, predictions_dir)
+        run_inference(best_model, test_ds, device, predictions_dir)
     
         zip_output_name = args.zip_output
         if zip_output_name:
