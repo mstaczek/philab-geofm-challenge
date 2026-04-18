@@ -307,7 +307,7 @@ def get_dataloaders(
         raise ValueError(f"Unsupported model type: {model_type}.")
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=2)
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=2)
 
     n_channels = train_loader.dataset[0][0].shape[0] # count of channels from the first sample in the dataset
 
