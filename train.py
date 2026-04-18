@@ -105,6 +105,109 @@ def parse_args():
     return parser.parse_args()
 
 
+def run_training_loop(model, train_loader, val_loader, criterion, optimizer, scheduler):
+    train_losses, val_losses = [], []
+    train_mae_losses, train_ssim_losses, train_grad_losses, train_tversky_losses = [], [], [], []
+
+    # --- TRAINING LOOP ---
+    for epoch in range(EPOCHS):
+        model.train()
+        running_loss = 0.0
+        train_samples_seen = 0
+        train_components = torch.zeros(4).to(DEVICE)
+
+        train_pbar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{EPOCHS} [train]", leave=False)
+        for imgs, targets in train_pbar:
+            imgs, targets = imgs.to(DEVICE), targets.to(DEVICE)
+            optimizer.zero_grad()
+            outputs = model(imgs)
+
+            loss, l_mae, l_ssim, l_grad, l_tversky = criterion(outputs, targets)
+            loss.backward()
+
+            # NEW: Gradient Clipping
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+            optimizer.step()
+            running_loss += loss.item() * imgs.size(0)
+            bs = imgs.size(0)
+            train_components[0] += l_mae * bs
+            train_components[1] += l_ssim * bs
+            train_components[2] += l_grad * bs
+            train_components[3] += l_tversky * bs
+            train_samples_seen += imgs.size(0)
+            train_avg = running_loss / max(1, train_samples_seen)
+            train_pbar.set_postfix(loss=f"{loss.item():.4f}", avg=f"{train_avg:.4f}")
+
+        epoch_loss = running_loss / len(train_loader)
+        train_losses.append(epoch_loss)
+        
+        train_epoch_comp = train_components / len(train_loader)
+        train_mae_losses.append(train_epoch_comp[0].item())
+        train_ssim_losses.append(train_epoch_comp[1].item())
+        train_grad_losses.append(train_epoch_comp[2].item())
+        train_tversky_losses.append(train_epoch_comp[3].item())
+
+        # --- VALIDATION LOOP ---
+        model.eval()
+        val_running_loss = 0.0
+        val_components = torch.zeros(4).to(DEVICE)
+        val_samples_seen = 0
+        val_mae_losses, val_ssim_losses, val_grad_losses, val_tversky_losses = [], [], [], []
+        best_val_loss = float('inf')
+
+        with torch.no_grad():
+            val_pbar = tqdm(val_loader, desc=f"Epoch {epoch + 1}/{EPOCHS} [val]", leave=False)
+            for imgs, targets in val_pbar:
+                imgs, targets = imgs.to(DEVICE), targets.to(DEVICE)
+                outputs = model(imgs)
+
+                loss, l_mae, l_ssim, l_grad, l_tversky = criterion(outputs, targets)
+                val_running_loss += loss.item() * imgs.size(0)
+
+                bs = imgs.size(0)
+                val_components[0] += l_mae * bs
+                val_components[1] += l_ssim * bs
+                val_components[2] += l_grad * bs
+                val_components[3] += l_tversky * bs
+                val_samples_seen += bs
+                val_avg_live = val_running_loss / max(1, val_samples_seen)
+                val_pbar.set_postfix(avg=f"{val_avg_live:.4f}")
+
+        epoch_val_loss = val_running_loss / len(val_loader)
+        epoch_comp = val_components / len(val_loader)
+        val_losses.append(epoch_val_loss)
+        
+        val_mae_losses.append(epoch_comp[0].item())
+        val_ssim_losses.append(epoch_comp[1].item())
+        val_grad_losses.append(epoch_comp[2].item())
+        val_tversky_losses.append(epoch_comp[3].item())
+
+        scheduler.step(epoch_val_loss)
+
+        if epoch_val_loss < best_val_loss:
+            best_val_loss = epoch_val_loss
+            torch.save(model.state_dict(), BEST_MODEL_PATH)
+            print(f"   >> Model Saved! (New Best Val Loss: {best_val_loss:.4f})")
+
+        print(f"Epoch {epoch + 1}/{EPOCHS} | Train: {epoch_loss:.4f} | Val: {epoch_val_loss:.4f}")
+        print(f"   >> Val Breakdown: MAE:{epoch_comp[0]:.3f} |"
+              " SSIM:{epoch_comp[1]:.3f} |"
+              " Grad:{epoch_comp[2]:.3f} |"
+              " Tversky:{epoch_comp[3]:.3f}")
+        return {
+            "train_losses": train_losses,
+            "val_losses": val_losses,
+            "train_mae_losses": train_mae_losses,
+            "train_ssim_losses": train_ssim_losses,
+            "train_grad_losses": train_grad_losses,
+            "train_tversky_losses": train_tversky_losses,
+            "val_mae_losses": val_mae_losses,
+            "val_ssim_losses": val_ssim_losses,
+            "val_grad_losses": val_grad_losses,
+            "val_tversky_losses": val_tversky_losses
+        }
+
 
 def visualize_results(model, dataset, num_samples=3):
     """Generates sample visualizations from the dataset."""
@@ -265,107 +368,21 @@ def main():
 
     print(f"Starting training on {DEVICE}...")
 
-    train_losses, val_losses = [], []
-    train_mae_losses, train_ssim_losses, train_grad_losses, train_tversky_losses = [], [], [], []
-    val_mae_losses, val_ssim_losses, val_grad_losses, val_tversky_losses = [], [], [], []
-    best_val_loss = float('inf')
-
-    # --- TRAINING LOOP ---
-    for epoch in range(EPOCHS):
-        model.train()
-        running_loss = 0.0
-        train_samples_seen = 0
-        train_components = torch.zeros(4).to(DEVICE)
-
-        train_pbar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{EPOCHS} [train]", leave=False)
-        for imgs, targets in train_pbar:
-            imgs, targets = imgs.to(DEVICE), targets.to(DEVICE)
-            optimizer.zero_grad()
-            outputs = model(imgs)
-
-            loss, l_mae, l_ssim, l_grad, l_tversky = criterion(outputs, targets)
-            loss.backward()
-
-            # NEW: Gradient Clipping
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-
-            optimizer.step()
-            running_loss += loss.item() * imgs.size(0)
-            bs = imgs.size(0)
-            train_components[0] += l_mae * bs
-            train_components[1] += l_ssim * bs
-            train_components[2] += l_grad * bs
-            train_components[3] += l_tversky * bs
-            train_samples_seen += imgs.size(0)
-            train_avg = running_loss / max(1, train_samples_seen)
-            train_pbar.set_postfix(loss=f"{loss.item():.4f}", avg=f"{train_avg:.4f}")
-
-        epoch_loss = running_loss / len(train_ds)
-        train_losses.append(epoch_loss)
-        
-        train_epoch_comp = train_components / len(train_ds)
-        train_mae_losses.append(train_epoch_comp[0].item())
-        train_ssim_losses.append(train_epoch_comp[1].item())
-        train_grad_losses.append(train_epoch_comp[2].item())
-        train_tversky_losses.append(train_epoch_comp[3].item())
-
-        # --- VALIDATION LOOP ---
-        model.eval()
-        val_running_loss = 0.0
-        val_components = torch.zeros(4).to(DEVICE)
-        val_samples_seen = 0
-
-        with torch.no_grad():
-            val_pbar = tqdm(val_loader, desc=f"Epoch {epoch + 1}/{EPOCHS} [val]", leave=False)
-            for imgs, targets in val_pbar:
-                imgs, targets = imgs.to(DEVICE), targets.to(DEVICE)
-                outputs = model(imgs)
-
-                loss, l_mae, l_ssim, l_grad, l_tversky = criterion(outputs, targets)
-                val_running_loss += loss.item() * imgs.size(0)
-
-                bs = imgs.size(0)
-                val_components[0] += l_mae * bs
-                val_components[1] += l_ssim * bs
-                val_components[2] += l_grad * bs
-                val_components[3] += l_tversky * bs
-                val_samples_seen += bs
-                val_avg_live = val_running_loss / max(1, val_samples_seen)
-                val_pbar.set_postfix(avg=f"{val_avg_live:.4f}")
-
-        epoch_val_loss = val_running_loss / len(val_ds)
-        epoch_comp = val_components / len(val_ds)
-        val_losses.append(epoch_val_loss)
-        
-        val_mae_losses.append(epoch_comp[0].item())
-        val_ssim_losses.append(epoch_comp[1].item())
-        val_grad_losses.append(epoch_comp[2].item())
-        val_tversky_losses.append(epoch_comp[3].item())
-
-        scheduler.step(epoch_val_loss)
-
-        if epoch_val_loss < best_val_loss:
-            best_val_loss = epoch_val_loss
-            torch.save(model.state_dict(), BEST_MODEL_PATH)
-            print(f"   >> Model Saved! (New Best Val Loss: {best_val_loss:.4f})")
-
-        print(f"Epoch {epoch + 1}/{EPOCHS} | Train: {epoch_loss:.4f} | Val: {epoch_val_loss:.4f}")
-        print(
-            f"   >> Val Breakdown: MAE:{epoch_comp[0]:.3f} | SSIM:{epoch_comp[1]:.3f} | Grad:{epoch_comp[2]:.3f} | Tversky:{epoch_comp[3]:.3f}")
+    training_results = run_training_loop(model, train_loader, val_loader, criterion, optimizer, scheduler)
 
     print("--- 3. Saving & Visualizing ---")
     torch.save(model.state_dict(), LAST_MODEL_PATH)
 
-    generate_plots(train_losses=train_losses,
-                val_losses=val_losses,
-                train_mae_losses=train_mae_losses,
-                val_mae_losses=val_mae_losses,
-                train_ssim_losses=train_ssim_losses,
-                val_ssim_losses=val_ssim_losses,
-                train_grad_losses=train_grad_losses,
-                val_grad_losses=val_grad_losses,
-                train_tversky_losses=train_tversky_losses,
-                val_tversky_losses=val_tversky_losses)
+    generate_plots(train_losses=training_results["train_losses"],
+                val_losses=training_results["val_losses"],
+                train_mae_losses=training_results["train_mae_losses"],
+                val_mae_losses=training_results["val_mae_losses"],
+                train_ssim_losses=training_results["train_ssim_losses"],
+                val_ssim_losses=training_results["val_ssim_losses"],
+                train_grad_losses=training_results["train_grad_losses"],
+                val_grad_losses=training_results["val_grad_losses"],
+                train_tversky_losses=training_results["train_tversky_losses"],
+                val_tversky_losses=training_results["val_tversky_losses"])
 
     visualize_results(model, val_ds, num_samples=5)
 
