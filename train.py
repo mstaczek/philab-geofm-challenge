@@ -26,7 +26,7 @@ def save_experiment_config(*, params_dict, config_log_path):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train emb2heights baseline models")
-    parser.add_argument("--model-type", type=str, default="lightunet", choices=["auto", "lightunet", "decoder_residual"])
+    parser.add_argument("--model-type", type=str, default="lightunet")
     parser.add_argument("--output-dir", type=str, default="./runs")
     parser.add_argument("--train-embeddings-dir", type=str)
     parser.add_argument("--train-targets-dir", type=str)
@@ -145,23 +145,23 @@ def run_training_loop(
 
         print(f"Epoch {epoch + 1}/{epochs} | Train: {epoch_loss:.4f} | Val: {epoch_val_loss:.4f}")
         print(f"   >> Val Breakdown: MAE:{epoch_comp[0]:.3f} |"
-              " SSIM:{epoch_comp[1]:.3f} |"
-              " Grad:{epoch_comp[2]:.3f} |"
-              " Tversky:{epoch_comp[3]:.3f}")
+              f" SSIM:{epoch_comp[1]:.3f} |"
+              f" Grad:{epoch_comp[2]:.3f} |"
+              f" Tversky:{epoch_comp[3]:.3f}")
                     
-        return {
-            "model": model,
-            "train_losses": train_losses,
-            "val_losses": val_losses,
-            "train_mae_losses": train_mae_losses,
-            "train_ssim_losses": train_ssim_losses,
-            "train_grad_losses": train_grad_losses,
-            "train_tversky_losses": train_tversky_losses,
-            "val_mae_losses": val_mae_losses,
-            "val_ssim_losses": val_ssim_losses,
-            "val_grad_losses": val_grad_losses,
-            "val_tversky_losses": val_tversky_losses
-        }
+    return {
+        "model": model,
+        "train_losses": train_losses,
+        "val_losses": val_losses,
+        "train_mae_losses": train_mae_losses,
+        "train_ssim_losses": train_ssim_losses,
+        "train_grad_losses": train_grad_losses,
+        "train_tversky_losses": train_tversky_losses,
+        "val_mae_losses": val_mae_losses,
+        "val_ssim_losses": val_ssim_losses,
+        "val_grad_losses": val_grad_losses,
+        "val_tversky_losses": val_tversky_losses
+    }
 
 
 def visualize_results(
@@ -295,7 +295,7 @@ def get_dataloaders(
     )
 
     # In train.py:
-    if model_type == "lightunet": # provided dataset have shapes 256x256x(64 or 128)
+    if model_type == "lightunet" or model_type == "pixelwise": # provided dataset have shapes 256x256x(64 or 128)
         train_ds = PixelEmbeddingDataset(train_pairs, patch_size=patch_size, is_train=True)
         val_ds = PixelEmbeddingDataset(val_pairs, patch_size=patch_size, is_train=False)
     elif model_type == "decoder_residual": # provided datasets have then shape 16x16x768

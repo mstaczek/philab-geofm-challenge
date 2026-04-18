@@ -149,6 +149,29 @@ class EfficientDecoder256Fast(nn.Module):
         return self.head(x) # -> 256x256x4
 
 
+# ==========================================
+# 4. PIXEL-WISE BASELINE MODEL
+# ==========================================
+
+class PixelWiseBaseline(nn.Module):
+    """
+    Predicts each pixel independently using only its channel vector.
+    Equivalent to applying an MLP to each pixel.
+    """
+
+    def __init__(self, in_channels, out_channels, hidden_dim=16):
+        super().__init__()
+
+        self.net = nn.Sequential(
+            nn.Conv2d(in_channels, hidden_dim, kernel_size=1),
+            nn.LeakyReLU(0.01, inplace=True),
+            nn.Conv2d(hidden_dim, out_channels, kernel_size=1)
+        )
+
+    def forward(self, x):
+        # x: (B, C, H, W)
+        return self.net(x)  # (B, out_channels, H, W)
+
 
 # ==========================================
 # 3. SELECT MODEL FUNCTION
@@ -170,7 +193,8 @@ def build_model(model_type, n_channels, n_classes): # n_classes is 4 - to get al
         return LightUNet(n_channels, n_classes), selected
     if selected == "decoder_residual": # default in channels 768
         return EfficientDecoder256Fast(in_channels=n_channels, out_channels=n_classes), selected
-
+    if selected == "pixelwise":
+        return PixelWiseBaseline(n_channels, n_classes), selected
     raise ValueError(
-        f"Unknown model_type '{model_type}'. Use one of: auto, lightunet, decoder_residual"
+        f"Unknown model_type '{model_type}'. Use one of: auto, lightunet, decoder_residual, pixelwise"
     )
