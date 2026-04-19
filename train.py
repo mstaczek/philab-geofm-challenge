@@ -455,7 +455,6 @@ def main():
     if test_embeddings_dir != '' and os.path.exists(test_embeddings_dir):
         print("Generating predictions for submission...")
         test_ds = get_prediction_dataset(
-            predictions_dir=predictions_dir,
             test_embeddings_dir=test_embeddings_dir, 
             patch_size=patch_size,
             model_type=model_type
@@ -463,7 +462,8 @@ def main():
         best_model = load_model(
             dataset=test_ds,
             model_type=model_type,
-            model_path=best_model_path
+            model_path=best_model_path,
+            device=device
         )
         run_inference(best_model, test_ds, device, predictions_dir)
     

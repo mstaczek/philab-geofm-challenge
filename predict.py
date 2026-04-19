@@ -7,34 +7,18 @@ from pathlib import Path
 import zipfile
 
 
-# --- IMPORT FROM CORE MODULES ---
 from core.model import build_model
 from core.dataset import PixelEmbeddingDataset, LatentTokenDataset, find_file_pairs, _normalize_core_id, \
     HEIGHT_NORM_CONSTANT
-
-# --- DEFAULTS ---
-EXPERIMENT_NAME = "terramind_decoder_run01"
-BASE_DIR = "./runs"
-MODEL_TYPE = "decoder_residual"
-PATCH_SIZE = 256
-MAX_SAMPLES = 0
-
-if torch.cuda.is_available():
-    DEVICE = torch.device("cuda")
-elif torch.backends.mps.is_available():
-    DEVICE = torch.device("mps")
-else:
-    DEVICE = torch.device("cpu")
 
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Load a trained model and run inference, saving predictions as .npy files."
     )
-    parser.add_argument("--experiment-name", type=str, default=EXPERIMENT_NAME)
-    parser.add_argument("--base-dir", type=str, default=BASE_DIR,
+    parser.add_argument("--experiment-name", type=str, default="experiment_name")
+    parser.add_argument("--base-dir", type=str, default="./runs",
                         help="Root directory containing experiment subfolders.")
-    parser.add_argument("--model-type", type=str, default=MODEL_TYPE,
-                        choices=["auto", "lightunet", "decoder", "decoder_residual"],
+    parser.add_argument("--model-type", type=str,
                         help="Model architecture used during training.")
     parser.add_argument("--model-path", type=str, default=None,
                         help="Path to the .pth checkpoint. Defaults to <base-dir>/<experiment-name>/model_best.pth.")
@@ -44,18 +28,15 @@ def parse_args():
                         help="Optional labels directory. If omitted, inference only uses embeddings.")
     parser.add_argument("--predictions-dir", type=str, default=None,
                         help="Output directory for .npy predictions. Defaults to <base-dir>/<experiment-name>/predictions.")
-    parser.add_argument("--patch-size", type=int, default=PATCH_SIZE)
-    parser.add_argument("--max-samples", type=int, default=MAX_SAMPLES,
+    parser.add_argument("--patch-size", type=int, default=256)
+    parser.add_argument("--max-samples", type=int, default=0,
                         help="Limit inference to N samples (0 = all).")
     parser.add_argument("--device", type=str, default="cpu", help="What torch device to use.")
     parser.add_argument("--zip-output", type=str, default=None, 
                         help="Zip name in submissions folder with all files from the predictions folder will be created.")
     return parser.parse_args()
 
-def get_prediction_dataset(predictions_dir, test_embeddings_dir, patch_size, model_type, max_samples=0, test_targets_dir=None):
-    os.makedirs(predictions_dir, exist_ok=True)
-
-    # --- Load data pairs ---
+def get_prediction_dataset(test_embeddings_dir, patch_size, model_type, max_samples=0, test_targets_dir=None):
     print(f"Loading file pairs from embeddings: {test_embeddings_dir}")
     pairs = find_file_pairs(test_embeddings_dir, test_targets_dir)
     if not pairs:
@@ -64,8 +45,7 @@ def get_prediction_dataset(predictions_dir, test_embeddings_dir, patch_size, mod
         pairs = pairs[:max_samples]
 
     # --- Dataset ---
-    is_lightunet = model_type.lower() == "lightunet"
-    if is_lightunet:
+    if model_type.lower() == "lightunet" or model_type.lower() == "pixelwise":
         test_ds = PixelEmbeddingDataset(pairs, patch_size=patch_size, is_train=False)
     else:
         test_ds = LatentTokenDataset(pairs, patch_size=patch_size, scale_factor=16, is_train=False)
@@ -145,30 +125,28 @@ def build_zip(predictions_dir, zip_output_name):
 
 
 
-def load_model(dataset, model_type, model_path):
+def load_model(dataset, model_type, model_path, device):
     sample_img, _ = dataset[0]
     model, selected_model = build_model(model_type, n_channels=sample_img.shape[0], n_classes=4)
-    model = model.to(DEVICE)
-    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+    model = model.to(device)
+    model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
     print(f"Loaded model: {selected_model} from {model_path} (input channels={sample_img.shape[0]})")
     return model
 
 def main():
-    global DEVICE
     args = parse_args()
-    DEVICE = torch.device(args.device)
-    print("DEVICE: ", DEVICE)
     
+    device = torch.device(args.device)
     exp_dir = os.path.join(args.base_dir, args.experiment_name)
     model_path = args.model_path or os.path.join(exp_dir, "model_best.pth")
     predictions_dir = args.predictions_dir or os.path.join(exp_dir, "predictions")
 
+    print("DEVICE: ", device)
     os.makedirs(predictions_dir, exist_ok=True)
 
     # --- Dataset ---
     test_ds = get_prediction_dataset(
-        predictions_dir=predictions_dir,
         test_embeddings_dir=args.test_embeddings_dir,
         patch_size=args.patch_size,
         model_type=args.model_type,
@@ -180,11 +158,12 @@ def main():
     model = load_model(
         dataset=test_ds,
         model_type=args.model_type,
-        model_path=model_path
+        model_path=model_path,
+        device=device
     )
 
     # --- Inference ---
-    run_inference(model, test_ds, DEVICE, predictions_dir)
+    run_inference(model, test_ds, device, predictions_dir)
 
     # --- Zip (optional) ---
     zip_output_path = args.zip_output
