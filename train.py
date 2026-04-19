@@ -27,6 +27,8 @@ def save_experiment_config(*, params_dict, config_log_path):
 def parse_args():
     parser = argparse.ArgumentParser(description="Train emb2heights baseline models")
     parser.add_argument("--model-type", type=str, default="lightunet")
+    parser.add_argument("--dataset-type", type=str, default="pixel",
+                        help="Dataset type: 'pixel' for PixelEmbeddingDataset or 'latent' for LatentTokenDataset")
     parser.add_argument("--output-dir", type=str, default="./runs")
     parser.add_argument("--train-embeddings-dir", type=str)
     parser.add_argument("--train-targets-dir", type=str)
@@ -279,7 +281,7 @@ def get_dataloaders(
         train_targets_dir, 
         val_split, 
         random_seed, 
-        model_type, 
+        dataset_type, 
         patch_size, 
         batch_size):
     all_train_pairs = find_file_pairs(train_embeddings_dir, train_targets_dir)
@@ -294,17 +296,16 @@ def get_dataloaders(
         all_train_pairs, test_size=val_split, random_state=random_seed
     )
 
-    # In train.py:
-    if model_type == "lightunet" or model_type == "pixelwise": # provided dataset have shapes 256x256x(64 or 128)
+    # Dataset selection based on dataset_type
+    if dataset_type == "pixel": # provided dataset have shapes 256x256x(64 or 128)
         train_ds = PixelEmbeddingDataset(train_pairs, patch_size=patch_size, is_train=True)
         val_ds = PixelEmbeddingDataset(val_pairs, patch_size=patch_size, is_train=False)
-    elif model_type == "decoder_residual": # provided datasets have then shape 16x16x768
-        # For the decoders (TerraMind/Thor)
-        scale_factor = 16
+    elif dataset_type == "latent":
+        scale_factor = 16 # provided datasets have then shape 16x16x768
         train_ds = LatentTokenDataset(train_pairs, patch_size=patch_size, scale_factor=scale_factor, is_train=True)
         val_ds = LatentTokenDataset(val_pairs, patch_size=patch_size, scale_factor=scale_factor, is_train=False)
     else:
-        raise ValueError(f"Unsupported model type: {model_type}.")
+        raise ValueError(f"Unsupported dataset type: {dataset_type}. Use 'pixel' or 'latent'.")
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=2)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=2)
@@ -334,6 +335,7 @@ def main():
     args = parse_args()
 
     model_type = args.model_type
+    dataset_type = args.dataset_type
     base_runs_dir = args.output_dir
     train_embeddings_dir = args.train_embeddings_dir
     train_targets_dir = args.train_targets_dir
@@ -365,6 +367,7 @@ def main():
 
     params_dict = {
         "model_type": args.model_type,
+        "dataset_type": dataset_type,
         "base_dir": args.output_dir,
         "train_embeddings_dir": args.train_embeddings_dir,
         "train_targets_dir": args.train_targets_dir,
@@ -394,7 +397,7 @@ def main():
         train_targets_dir=train_targets_dir, 
         val_split=val_split_fraction, 
         random_seed=random_seed, 
-        model_type=model_type, 
+        dataset_type=dataset_type, 
         patch_size=patch_size, 
         batch_size=batch_size
     )
@@ -457,7 +460,7 @@ def main():
         test_ds = get_prediction_dataset(
             test_embeddings_dir=test_embeddings_dir, 
             patch_size=patch_size,
-            model_type=model_type
+            dataset_type=dataset_type
         )
         best_model = load_model(
             dataset=test_ds,

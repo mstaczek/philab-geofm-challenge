@@ -20,6 +20,8 @@ def parse_args():
                         help="Root directory containing experiment subfolders.")
     parser.add_argument("--model-type", type=str,
                         help="Model architecture used during training.")
+    parser.add_argument("--dataset-type", type=str,
+                        help="Dataset type: 'pixel' for PixelEmbeddingDataset or 'latent' for LatentTokenDataset")
     parser.add_argument("--model-path", type=str, default=None,
                         help="Path to the .pth checkpoint. Defaults to <base-dir>/<experiment-name>/model_best.pth.")
     parser.add_argument("--test-embeddings-dir", type=str, required=True,
@@ -36,7 +38,7 @@ def parse_args():
                         help="Zip name in submissions folder with all files from the predictions folder will be created.")
     return parser.parse_args()
 
-def get_prediction_dataset(test_embeddings_dir, patch_size, model_type, max_samples=0, test_targets_dir=None):
+def get_prediction_dataset(test_embeddings_dir, patch_size, dataset_type, max_samples=0, test_targets_dir=None):
     print(f"Loading file pairs from embeddings: {test_embeddings_dir}")
     pairs = find_file_pairs(test_embeddings_dir, test_targets_dir)
     if not pairs:
@@ -45,10 +47,12 @@ def get_prediction_dataset(test_embeddings_dir, patch_size, model_type, max_samp
         pairs = pairs[:max_samples]
 
     # --- Dataset ---
-    if model_type.lower() == "lightunet" or model_type.lower() == "pixelwise":
+    if dataset_type == "pixel":
         test_ds = PixelEmbeddingDataset(pairs, patch_size=patch_size, is_train=False)
-    else:
+    elif dataset_type == "latent":
         test_ds = LatentTokenDataset(pairs, patch_size=patch_size, scale_factor=16, is_train=False)
+    else:
+        raise ValueError(f"Unsupported dataset type: {dataset_type}. Use 'pixel' or 'latent'.")
     
     return test_ds
 
@@ -149,7 +153,7 @@ def main():
     test_ds = get_prediction_dataset(
         test_embeddings_dir=args.test_embeddings_dir,
         patch_size=args.patch_size,
-        model_type=args.model_type,
+        dataset_type=args.dataset_type,
         max_samples=args.max_samples,
         test_targets_dir=args.test_targets_dir
     )
