@@ -1,0 +1,15 @@
+--- EXPERIMENT: alphaearth_emb_v3_50epochs ---
+OUTPUT_DIR: runs
+BATCH_SIZE: 4
+PATCH_SIZE: 256
+EPOCHS: 50
+LEARNING_RATE: 0.0002
+WEIGHT_DECAY: 0.0001
+LOSS LAMBDAS: [1.0, 0.5, 0.5, 2.0]
+MODEL_TYPE: lightunet
+TRAIN_EMBEDDINGS_DIR: data/embed2heights/data/train/alphaearth_emb
+TRAIN_TARGETS_DIR: data/embed2heights/data/train/labels
+VAL_SPLIT: 0.2
+OPTIMIZER: AdamW
+SCHEDULER: ReduceLROnPlateau (factor=0.5, patience=2)
+GRADIENT CLIPPING: max_norm=1.0
