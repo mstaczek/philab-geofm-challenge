@@ -12,6 +12,11 @@ submission
 # runs
 runs/**/*.pth
 runs/**/*.npy
+runs/**/*.txt
+runs/**/*.png
+!runs/**/component_losses.png
+!runs/**/loss_curve.png
+!runs/**/viz_4.png
 
 # cache
 __pycache__

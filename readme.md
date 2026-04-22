@@ -126,12 +126,14 @@ Upload the `submission.zip` file to https://platform.ai4eo.eu/geoai/submissions 
     - no spatial awareness / no neighbor pixels taken into account,
 
 
-
 ## 1) Baseline terramind_s1 50 epochs
 
 | Component Losses                                        | Loss Curve                                        |
 | ------------------------------------------------------- | ------------------------------------------------- |
 | ![](runs/terramind_s1_v3_50epochs/component_losses.png) | ![](runs/terramind_s1_v3_50epochs/loss_curve.png) |
+
+
+![](runs/terramind_s1_v3_50epochs/visualizations/viz_4.png)
 
 ## 2) Baseline alphaearth 50 epochs
 
@@ -139,8 +141,12 @@ Upload the `submission.zip` file to https://platform.ai4eo.eu/geoai/submissions 
 | --------------------------------------------------------- | --------------------------------------------------- |
 | ![](runs/alphaearth_emb_v3_50epochs/component_losses.png) | ![](runs/alphaearth_emb_v3_50epochs/loss_curve.png) |
 
+![](runs/alphaearth_emb_v3_50epochs/visualizations/viz_4.png)
+
 ## 3) Baseline alphaearth 50 epochs pixelwise model
 
 | Component Losses                                                 | Loss Curve                                                 |
 | ---------------------------------------------------------------- | ---------------------------------------------------------- |
 | ![](runs/alphaearth_emb_pixelwise_50epochs/component_losses.png) | ![](runs/alphaearth_emb_pixelwise_50epochs/loss_curve.png) |
+
+![](runs/alphaearth_emb_pixelwise_50epochs/visualizations/viz_4.png)
