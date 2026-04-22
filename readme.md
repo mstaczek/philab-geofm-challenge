@@ -10,17 +10,17 @@ Team members:
 ## Challenge TLDR (simplified)
 
 Goal: predict 4 channel outputs given aerial photos embeddings:
-    - 3x image segmentation (buildings, vegetation, water, scale 0-1),
-    - 1x height regression (relative, scale 0-1, already normalized labels),
+- 3x image segmentation (buildings, vegetation, water, scale 0-1),
+- 1x height regression (relative, scale 0-1, already normalized labels),
 
 Input: 
-    - embeddings of images of earth computed with different models. 
-        - 4 folders with embeddings of shapes 16x16x768,
-        - 2 folders with embeddings of shapes 256x256x64 (or x128),
-    - correct labels - 256x256x4, each output channel represents a different goal.
+- embeddings of images of earth computed with different models. 
+    - 4 folders with embeddings of shapes 16x16x768,
+    - 2 folders with embeddings of shapes 256x256x64 (or x128),
+- correct labels - 256x256x4, each output channel represents a different goal.
 
 Output:
-    - 256x256x4 matrices, with channels representing predictions for different tasks (segmentation/regression).
+- 256x256x4 matrices, with channels representing predictions for different tasks (segmentation/regression).
 
 
 ## Links
