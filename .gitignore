@@ -10,7 +10,8 @@ data
 submission
 
 # runs
-runs
+runs/**/*.pth
+runs/**/*.npy
 
 # cache
 __pycache__
