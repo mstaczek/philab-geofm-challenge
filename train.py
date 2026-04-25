@@ -253,25 +253,30 @@ def set_device_and_seeds(device_str, random_seed):
     random.seed(random_seed)
 
     return device
-
-def main():
-    print("Starting main() function")
-
-    args = parse_args()
-
-    model_type = args.model_type
-    dataset_type = args.dataset_type
-    base_runs_dir = args.output_dir
-    train_embeddings_dir = args.train_embeddings_dir
-    train_targets_dir = args.train_targets_dir
-    test_embeddings_dir = args.test_submission_embeddings_dir
-    experiment_name = args.experiment_name
-    batch_size = args.batch_size
-    patch_size = args.patch_size
-    epochs = args.epochs
-
-    device = set_device_and_seeds(args.device, args.random_seed)
-
+def run_training(
+        model_type, 
+        dataset_type, 
+        base_runs_dir, 
+        train_embeddings_dir, 
+        train_targets_dir, 
+        test_embeddings_dir, 
+        experiment_name, 
+        batch_size,
+        patch_size,
+        epochs,
+        zip_output_name,
+        device,
+        predictions_subfolder,
+        output_dir,
+        train_embeddings_dir_arg,
+        train_targets_dir_arg,
+        test_embeddings_dir_arg,
+        experiment_name_arg,
+        batch_size_arg,
+        patch_size_arg,
+        epochs_arg,
+        device_arg
+    ):
     lambdas = [1.0, 0.5, 0.5, 2.0]  # [MAE, SSIM, Gradient, Structure/Tversky]
     learning_rate = 2e-4
     weight_decay = 1e-4  # L2 Regularization
@@ -279,7 +284,7 @@ def main():
     random_seed = 42
 
     experiment_dir = os.path.join(base_runs_dir, experiment_name)
-    predictions_dir = os.path.join(experiment_dir, args.predictions_subfolder)
+    predictions_dir = os.path.join(experiment_dir, predictions_subfolder)
     viz_output_dir = os.path.join(experiment_dir, "visualizations")
     best_model_path = os.path.join(experiment_dir, "model_best.pth")
     last_model_path = os.path.join(experiment_dir, "model_last.pth")
@@ -291,19 +296,19 @@ def main():
     print(f"📁 Created experiment folder: {experiment_dir}")
 
     params_dict = {
-        "model_type": args.model_type,
+        "model_type": model_type,
         "dataset_type": dataset_type,
-        "base_dir": args.output_dir,
-        "train_embeddings_dir": args.train_embeddings_dir,
-        "train_targets_dir": args.train_targets_dir,
-        "test_embeddings_dir": args.test_submission_embeddings_dir,
+        "base_dir": output_dir,
+        "train_embeddings_dir": train_embeddings_dir_arg,
+        "train_targets_dir": train_targets_dir_arg,
+        "test_embeddings_dir": test_embeddings_dir_arg,
         "train_val_split": val_split_fraction,
-        "predictions_subfolder": args.predictions_subfolder,
-        "experiment_name": args.experiment_name,
-        "batch_size": args.batch_size,
-        "patch_size": args.patch_size,
-        "epochs": args.epochs,
-        "device": args.device,
+        "predictions_subfolder": predictions_subfolder,
+        "experiment_name": experiment_name_arg,
+        "batch_size": batch_size_arg,
+        "patch_size": patch_size_arg,
+        "epochs": epochs_arg,
+        "device": device_arg,
         "composite_loss_lambdas": lambdas,
         "learning_rate": learning_rate,
         "weight_decay": weight_decay,
@@ -324,11 +329,7 @@ def main():
 
     print("--- 2. Model Init ---")
     n_channels = train_loader.dataset[0][0].shape[0] # count of channels from the first sample in the dataset
-    model, selected_model = build_model(
-        model_type=model_type, 
-        n_channels=n_channels, 
-        n_classes=4
-    )
+    model, selected_model = build_model(model_type=model_type, n_channels=n_channels, n_classes=4)
     model = model.to(device)
     print(f"Using model: {selected_model} (input channels={n_channels})")
 
@@ -393,9 +394,39 @@ def main():
         )
         run_inference(best_model, test_ds, device, predictions_dir)
     
-        zip_output_name = args.zip_output
         if zip_output_name:
             build_zip(predictions_dir, zip_output_name)
+
+def main():
+    print("Starting main() function")
+
+    args = parse_args()
+
+    run_training(
+        model_type=args.model_type,
+        dataset_type=args.dataset_type,
+        base_runs_dir=args.output_dir,
+        train_embeddings_dir=args.train_embeddings_dir,
+        train_targets_dir=args.train_targets_dir,
+        test_embeddings_dir=args.test_submission_embeddings_dir,
+        experiment_name=args.experiment_name,
+        batch_size=args.batch_size,
+        patch_size=args.patch_size,
+        epochs=args.epochs,
+        zip_output_name=args.zip_output,
+        device=set_device_and_seeds(args.device, args.random_seed),
+        predictions_subfolder=args.predictions_subfolder,
+        output_dir=args.output_dir,
+        train_embeddings_dir_arg=args.train_embeddings_dir,
+        train_targets_dir_arg=args.train_targets_dir,
+        test_embeddings_dir_arg=args.test_submission_embeddings_dir,
+        experiment_name_arg=args.experiment_name,
+        batch_size_arg=args.batch_size,
+        patch_size_arg=args.patch_size,
+        epochs_arg=args.epochs,
+        device_arg=args.device
+    )
+
 
 if __name__ == "__main__":
     main()
