@@ -177,7 +177,7 @@ class PixelWiseBaseline(nn.Module):
 # 3. SELECT MODEL FUNCTION
 # ==========================================
 
-def build_model(model_type, n_channels, n_classes): # n_classes is 4 - to get all outputs with 1 model
+def build_model(*, model_type, n_channels, n_classes=4): # n_classes is 4 - to get all outputs with 1 model
     selected = model_type.lower()
 
     if selected == "auto":
@@ -198,3 +198,15 @@ def build_model(model_type, n_channels, n_classes): # n_classes is 4 - to get al
     raise ValueError(
         f"Unknown model_type '{model_type}'. Use one of: auto, lightunet, decoder_residual, pixelwise"
     )
+
+def load_model(*, model_type, model_path, n_channels, device):
+    model, selected_model = build_model(
+        model_type=model_type, 
+        n_channels=n_channels, 
+        n_classes=4
+    )
+    model = model.to(device)
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.eval()
+    print(f"Loaded model: {selected_model} from {model_path} (input channels={n_channels})")
+    return model

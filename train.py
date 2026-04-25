@@ -5,24 +5,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import torch.optim as optim
-import torch.nn.functional as F
-from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
 from tqdm.auto import tqdm
 
-# --- IMPORT FROM CORE MODULES ---
-from core.model import build_model
-from core.dataset import PixelEmbeddingDataset, LatentTokenDataset, find_file_pairs, HEIGHT_NORM_CONSTANT
+from core.model import build_model, load_model
+from core.dataset import build_dataloader, find_file_pairs
 from core.losses import ImprovedCompositeLoss
-from predict import get_prediction_dataset, run_inference, load_model, build_zip
+from core.utils import build_zip, save_experiment_config, visualize_predictions
+from predict import get_prediction_dataset, run_inference
 
-
-
-def save_experiment_config(*, params_dict, config_log_path):
-    """Logs all hyperparameters to a text file in the experiment folder."""
-    with open(config_log_path, "w") as f:
-        for key, value in params_dict.items():
-            f.write(f"{key}: {value}\n")
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train emb2heights baseline models")
@@ -49,6 +40,18 @@ def parse_args():
 
     return parser.parse_args()
 
+
+def get_train_val_file_pairs(train_embeddings_dir, train_targets_dir, val_split, random_seed):
+    all_train_pairs = find_file_pairs(train_embeddings_dir, train_targets_dir)
+    if len(all_train_pairs) == 0:
+        raise ValueError(
+            "No training (embedding, label) pairs found. "
+            f"train_embeddings_dir='{train_embeddings_dir}', "
+            f"train_targets_dir='{train_targets_dir}'. "
+            "Check filename conventions and directory paths."
+        )
+    train_pairs, val_pairs = train_test_split(all_train_pairs, test_size=val_split, random_state=random_seed)
+    return train_pairs, val_pairs
 
 def run_training_loop(
         *,
@@ -166,50 +169,8 @@ def run_training_loop(
     }
 
 
-def visualize_results(
-        *,
-        model, 
-        dataset, 
-        device,
-        viz_output_dir,
-        num_samples=3):
-    """Generates sample visualizations from the dataset."""
-    model.eval()
-    indices = random.sample(range(len(dataset)), min(num_samples, len(dataset)))
-    target_names = ["% Building", "% Vegetation", "% Water", "nDSM Height (m)"]
 
-    with torch.no_grad():
-        for i, idx in enumerate(indices):
-            img_tensor, target_tensor = dataset[idx]
-            input_batch = img_tensor.unsqueeze(0).to(device)
-            target_batch = target_tensor.unsqueeze(0).to(device)
-
-            output_batch = model(input_batch)
-
-            pred = output_batch.squeeze().cpu().numpy()
-            true = target_batch.squeeze().cpu().numpy()
-
-            # UN-NORMALIZE HEIGHT FOR VISUALIZATION
-            pred[3] = pred[3] * HEIGHT_NORM_CONSTANT
-            true[3] = true[3] * HEIGHT_NORM_CONSTANT
-
-            fig, axes = plt.subplots(2, 4, figsize=(20, 10))
-            for c in range(4):
-                vmin, vmax = (0, 1) if c < 3 else (0, HEIGHT_NORM_CONSTANT)
-                axes[0, c].imshow(true[c], cmap='viridis', vmin=vmin, vmax=vmax)
-                axes[0, c].set_title(f"True {target_names[c]}")
-                axes[0, c].axis('off')
-
-                axes[1, c].imshow(pred[c], cmap='viridis', vmin=vmin, vmax=vmax)
-                axes[1, c].set_title(f"Pred {target_names[c]}")
-                axes[1, c].axis('off')
-
-            plt.suptitle(f"{model.__class__.__name__} Prediction (Sample {i})")
-            plt.tight_layout()
-            plt.savefig(os.path.join(viz_output_dir, f"viz_{i}.png"))
-            plt.close()
-
-def generate_plots(
+def generate_training_metrics_plots(
         *,
         train_losses, 
         val_losses, 
@@ -276,43 +237,7 @@ def generate_plots(
     plt.savefig(component_loss_output_path)
     plt.close()
 
-def get_dataloaders(
-        train_embeddings_dir, 
-        train_targets_dir, 
-        val_split, 
-        random_seed, 
-        dataset_type, 
-        patch_size, 
-        batch_size):
-    all_train_pairs = find_file_pairs(train_embeddings_dir, train_targets_dir)
-    if len(all_train_pairs) == 0:
-        raise ValueError(
-            "No training (embedding, label) pairs found. "
-            f"train_embeddings_dir='{train_embeddings_dir}', "
-            f"train_targets_dir='{train_targets_dir}'. "
-            "Check filename conventions and directory paths."
-        )
-    train_pairs, val_pairs = train_test_split(
-        all_train_pairs, test_size=val_split, random_state=random_seed
-    )
 
-    # Dataset selection based on dataset_type
-    if dataset_type == "pixel": # provided dataset have shapes 256x256x(64 or 128)
-        train_ds = PixelEmbeddingDataset(train_pairs, patch_size=patch_size, is_train=True)
-        val_ds = PixelEmbeddingDataset(val_pairs, patch_size=patch_size, is_train=False)
-    elif dataset_type == "latent":
-        scale_factor = 16 # provided datasets have then shape 16x16x768
-        train_ds = LatentTokenDataset(train_pairs, patch_size=patch_size, scale_factor=scale_factor, is_train=True)
-        val_ds = LatentTokenDataset(val_pairs, patch_size=patch_size, scale_factor=scale_factor, is_train=False)
-    else:
-        raise ValueError(f"Unsupported dataset type: {dataset_type}. Use 'pixel' or 'latent'.")
-
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=2)
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=2)
-
-    n_channels = train_loader.dataset[0][0].shape[0] # count of channels from the first sample in the dataset
-
-    return train_loader, val_loader, n_channels
 
 def set_device_and_seeds(device_str, random_seed):
     if device_str == "cuda" and torch.cuda.is_available():
@@ -392,26 +317,24 @@ def main():
     save_experiment_config(params_dict=params_dict, config_log_path=config_log_path)
 
     print("--- 1. Data Setup ---")
-    train_loader, val_loader, n_channels = get_dataloaders(
-        train_embeddings_dir=train_embeddings_dir, 
-        train_targets_dir=train_targets_dir, 
-        val_split=val_split_fraction, 
-        random_seed=random_seed, 
-        dataset_type=dataset_type, 
-        patch_size=patch_size, 
-        batch_size=batch_size
-    )
+    train_pairs, val_pairs = get_train_val_file_pairs(train_embeddings_dir, train_targets_dir, val_split_fraction, random_seed)
+
+    train_loader = build_dataloader(train_pairs, dataset_type, patch_size, batch_size, is_train=True)
+    val_loader = build_dataloader(val_pairs, dataset_type, patch_size, batch_size, is_train=False)
 
     print("--- 2. Model Init ---")
-    n_classes = 4
-    model, selected_model = build_model(model_type, n_channels, n_classes)
+    n_channels = train_loader.dataset[0][0].shape[0] # count of channels from the first sample in the dataset
+    model, selected_model = build_model(
+        model_type=model_type, 
+        n_channels=n_channels, 
+        n_classes=4
+    )
     model = model.to(device)
     print(f"Using model: {selected_model} (input channels={n_channels})")
 
+    # Optimizer, scheduler, custom loss
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-    # Aggressive Scheduler
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=2)
-    
     criterion = ImprovedCompositeLoss(lambdas=lambdas).to(device)
 
     print(f"Starting training on {device}...")
@@ -427,11 +350,11 @@ def main():
         epochs=epochs,
         best_model_path=best_model_path
     )
-    torch.save(model.state_dict(), last_model_path)
+    torch.save(training_results["model"].state_dict(), last_model_path)
 
     print("--- 3. Saving & Visualizing ---")
 
-    generate_plots(
+    generate_training_metrics_plots(
         train_losses=training_results["train_losses"],
         val_losses=training_results["val_losses"],
         train_mae_losses=training_results["train_mae_losses"],
@@ -446,7 +369,13 @@ def main():
         exp_dir=experiment_dir
     )
 
-    visualize_results(
+    best_model = load_model(
+        dataset=test_ds,
+        model_type=model_type,
+        model_path=best_model_path,
+        device=device
+    )
+    visualize_predictions(
         model=training_results["model"],
         dataset=val_loader.dataset, 
         device=device,
@@ -461,12 +390,6 @@ def main():
             test_embeddings_dir=test_embeddings_dir, 
             patch_size=patch_size,
             dataset_type=dataset_type
-        )
-        best_model = load_model(
-            dataset=test_ds,
-            model_type=model_type,
-            model_path=best_model_path,
-            device=device
         )
         run_inference(best_model, test_ds, device, predictions_dir)
     

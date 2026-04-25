@@ -1,11 +1,10 @@
 import os
 import glob
-from pathlib import Path
 import re
 import numpy as np
 import rasterio
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader, Dataset
 
 HEIGHT_NORM_CONSTANT = 30.0
 
@@ -187,3 +186,18 @@ class LatentTokenDataset(Dataset):
             target = target[:, top_tar:top_tar + self.patch_size, left_tar:left_tar + self.patch_size]
 
         return torch.from_numpy(image), torch.from_numpy(target) if target is not None else None
+    
+
+
+def build_dataloader(pairs, dataset_type, patch_size, batch_size, is_train):
+    # Dataset selection based on dataset_type
+    if dataset_type == "pixel": # provided dataset have shapes 256x256x(64 or 128)
+        dataset = PixelEmbeddingDataset(pairs, patch_size=patch_size, is_train=is_train)
+    elif dataset_type == "latent":
+        scale_factor = 16 # provided datasets have then shape 16x16x768
+        dataset = LatentTokenDataset(pairs, patch_size=patch_size, scale_factor=scale_factor, is_train=is_train)
+    else:
+        raise ValueError(f"Unsupported dataset type: {dataset_type}. Use 'pixel' or 'latent'.")
+
+    return DataLoader(dataset, batch_size=batch_size, shuffle=is_train, num_workers=2)
+

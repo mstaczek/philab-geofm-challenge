@@ -155,6 +155,7 @@ Examples:
 ```bash
 python train.py \
     --model-type lightunet \
+    --dataset-type pixel \
     --output-dir runs \
     --train-embeddings-dir data/embed2heights/data/train/alphaearth_emb \
     --train-targets-dir data/embed2heights/data/train/labels \
@@ -172,19 +173,22 @@ or
 
 ```bash
 python train.py \
-    --model-type lightunet \
+    --model-type decoder_residual \
+    --dataset-type latent \
     --output-dir runs \
-    --train-embeddings-dir data/embed2heights/data/train/tessera_emb \
+    --train-embeddings-dir data/embed2heights/data/train/terramind_s1_emb \
     --train-targets-dir data/embed2heights/data/train/labels \
-    --experiment-name tessera_emb_50epochs \
+    --experiment-name terramind_s1_v3_50epochs \
     --epochs 50 \
-    --batch-size 2 \
+    --batch-size 16 \
     --patch-size 256 \
     --device cuda \
-    --test-submission-embeddings-dir data/embed2heights/data/test/tessera_test_emb \
-    --predictions-subfolder predictions \
-    --zip-output submission_test_50_epochs.zip
+    --test-submission-embeddings-dir data/embed2heights/data/test/terramind_test_s1_emb \
+    --predictions-subfolder predictions_submission_50 \
+    --zip-output submission_50_epochs.zip
 ```
+
+Passing `--test-submission-embeddings-dir` is optional and will save computed predictions to `--predictions-subfolder`, optionally also creating a zip `--zip-output`.
 
 ## Run predict
 

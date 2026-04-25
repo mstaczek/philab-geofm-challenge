@@ -7,9 +7,10 @@ from pathlib import Path
 import zipfile
 
 
-from core.model import build_model
+from core.model import build_model, load_model
 from core.dataset import PixelEmbeddingDataset, LatentTokenDataset, find_file_pairs, _normalize_core_id, \
     HEIGHT_NORM_CONSTANT
+from core.utils import build_zip
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -89,54 +90,6 @@ def run_inference(model, dataset, device, predictions_dir):
     print(f"Predictions saved to: {predictions_dir}")
     print(f"Output shape per file: {pred_np.shape} [building%, veg%, water%, height_m]")
 
-
-def build_zip(predictions_dir, zip_output_name):
-    predictions_dir = Path(predictions_dir)
-    submission_dir = Path("submission")
-    submission_dir.mkdir(exist_ok=True)
-
-    submission_zip_path = submission_dir / zip_output_name
-
-    if not predictions_dir.exists():
-        raise FileNotFoundError(f"Prediction folder not found: {predictions_dir}")
-
-    prediction_files = sorted(predictions_dir.glob("*.npy"))
-    if not prediction_files:
-        raise FileNotFoundError(f"No .npy files found in: {predictions_dir}")
-
-    print(f"Found {len(prediction_files)} files to zip.")
-
-    # Sanity check: first file must be [4, H, W].
-    sample = np.load(prediction_files[0])
-    if sample.ndim != 3 or sample.shape[0] != 4:
-        raise ValueError(
-            f"Invalid prediction shape {sample.shape} in {prediction_files[0].name}. "
-            "Expected [4, H, W]."
-        )
-
-    # Build submission zip with required internal folder structure.
-    with zipfile.ZipFile(submission_zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for npy_file in prediction_files:
-            zf.write(npy_file, arcname=f"predictions/{npy_file.name}")
-
-    print("Submission ready:")
-    print(f"  source folder: {predictions_dir}")
-    print(f"  files zipped: {len(prediction_files)}")
-    print(f"  sample file: {prediction_files[0].name}")
-    print(f"  sample shape: {sample.shape}")
-    print(f"  sample dtype: {sample.dtype}")
-    print(f"  zip file: {zip_output_name}")
-
-
-
-def load_model(dataset, model_type, model_path, device):
-    sample_img, _ = dataset[0]
-    model, selected_model = build_model(model_type, n_channels=sample_img.shape[0], n_classes=4)
-    model = model.to(device)
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model.eval()
-    print(f"Loaded model: {selected_model} from {model_path} (input channels={sample_img.shape[0]})")
-    return model
 
 def main():
     args = parse_args()
