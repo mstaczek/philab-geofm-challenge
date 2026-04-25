@@ -89,21 +89,7 @@ Output:
 
 # Local setup
 
-## Create local symlink to data in NAS
-
-Usable in VS Code, from local folder to sample shared network drive.
-```bash
-mklink /D C:\Users\matem\T\python_projects\philab\data_from_drive\public \\192.168.0.77\public\philab-dataset
-```
-
-Optionally, to re-download data:
-```bash
-pip install eotdl 
-eotdl datasets get embed2heights --path . --version 1
-eotdl datasets get embed2heights --path . --version 1 --assets --verbose --force 
-```
-
-## Installation (ours)
+(Tested on Windows with Python 3.14.2)
 
 Create new venv called .venv:
 ```bash
@@ -118,57 +104,111 @@ Activate venv:
 source .venv/bin/activate
 ```
 
-then install requirements:
+And install requirements:
 ```bash
 pip install -r requirements.txt
 ```
 
-## Copy and split data from labelled dataset to train/test
+## Download data
 
-Target is a separate folder in NAS, e.g.: terramind_s1_train_test_split:
-
+Then, go to data folder and run to download dataset metadata:
 ```bash
-python split_data.py --train-ratio 0.8 --source-embeddings-dir data/public/embed2heights/data/train/terramind_s1_emb --source-targets-dir data/public/embed2heights/data/train/labels --train-embeddings-output-dir data/public/terramind_s1_train_test_split/train/embeddings --train-targets-output-dir data/public/terramind_s1_train_test_split/train/labels --test-embeddings-output-dir data/public/terramind_s1_train_test_split/test/embeddings --test-targets-output-dir data/public/terramind_s1_train_test_split/test/labels
+cd data
+eotdl datasets get embed2heights --path . --version 1
 ```
+
+Check, if the folder `data/embed2heights` appeared. 
+
+After ensuring the data would be downloaded into the correct directory, download 100+ GB with:
+```bash
+eotdl datasets get embed2heights --path . --version 1 --assets --verbose --force 
+```
+
+## Repo structure
+
+`readmes_copied.md`:
+- readme from sample solution repo,
+- readme about the dataset.
+
+Folders:
+- core/ - source code for torch datasets, models and custom loss functions,
+- data/ - place for the dataset,
+- runs/ - experiments will save their artefacts here (predictions, plots, models, predictions for submission),
+- submission/ - ZIPs with model predictions on test set will appear here. 
+
+Scripts:
+- train.py - run training, save results locally, and prepare a ZIP with predictions on the test dataset,
+- predict.py - load a model, compute predictions and save them.
+
+Notebooks:
+- starter_pack-embed2heights.ipynb - copied from baseline solution, contains sample visualizations and creating a ZIP,
+- visualize_predictions.ipynb - contains sample prediction visualizations based on code copied from sample solution notebook.
 
 ## Run training
 
-Internally, it handles train/val splitting of the input data BUT by splitting data earlier and passing a single split, we can limit the size of the dataset for training.
-
 ```bash
-python train.py --model-type decoder_residual --output-dir runs --train-embeddings-dir data/terramind_s1_train_test_split/test/embeddings --train-targets-dir data/terramind_s1_train_test_split/test/labels --experiment-name test_terramind_s1_decoder_residual_v2 --epochs 10 --batch-size 16 --patch-size 256 --device cuda
+python train.py --help
 ```
 
-Run training and predictions and saving submission to zip all in one:
+Examples:
 
 ```bash
-python train.py --model-type lightunet --output-dir runs --train-embeddings-dir data/embed2heights/data/train/alphaearth_emb --train-targets-dir data/embed2heights/data/train/labels --experiment-name alphaearth_emb_v3_50epochs --epochs 50 --batch-size 4 --patch-size 256 --device cuda --test-submission-embeddings-dir data/embed2heights/data/test/alphaearth_test_emb --predictions-subfolder predictions_submission --zip-output submission_50_epochs_alphaearth.zip
+python train.py \
+    --model-type lightunet \
+    --output-dir runs \
+    --train-embeddings-dir data/embed2heights/data/train/alphaearth_emb \
+    --train-targets-dir data/embed2heights/data/train/labels \
+    --experiment-name alphaearth_emb_v3_1epochs \
+    --epochs 1 \
+    --batch-size 4 \
+    --patch-size 256 \
+    --device cuda \
+    --test-submission-embeddings-dir data/embed2heights/data/test/alphaearth_test_emb \
+    --predictions-subfolder predictions_submission_1 \
+    --zip-output submission_1_epochs.zip
 ```
+
 or
+
 ```bash
-python train.py --model-type pixelwise --output-dir runs --train-embeddings-dir data/embed2heights/data/train/alphaearth_emb --train-targets-dir data/embed2heights/data/train/labels --experiment-name alphaearth_emb_pixelwise_50epochs --epochs 50 --batch-size 16 --patch-size 256 --device cuda --test-submission-embeddings-dir data/embed2heights/data/test/alphaearth_test_emb --predictions-subfolder predictions_submission --zip-output submission_50_epochs_alphaearth_pixelwise.zip
+python train.py \
+    --model-type lightunet \
+    --output-dir runs \
+    --train-embeddings-dir data/embed2heights/data/train/tessera_emb \
+    --train-targets-dir data/embed2heights/data/train/labels \
+    --experiment-name tessera_emb_50epochs \
+    --epochs 50 \
+    --batch-size 2 \
+    --patch-size 256 \
+    --device cuda \
+    --test-submission-embeddings-dir data/embed2heights/data/test/tessera_test_emb \
+    --predictions-subfolder predictions \
+    --zip-output submission_test_50_epochs.zip
 ```
 
 ## Run predict
 
 Save a few train predictions
 ```bash
-python predict.py --experiment-name test_terramind_s1_decoder_residual_v2_cuda --base-dir runs --model-type decoder_residual --model-path runs/test_terramind_s1_decoder_residual_v2_cuda/model_best.pth --test-embeddings-dir data/terramind_s1_train_test_split/test/embeddings --predictions-dir runs/test_terramind_s1_decoder_residual_v2_cuda/predictions_train --patch-size 256 --max-samples 5 --device cuda
+python predict.py \
+    --experiment-name alphaearth_emb_pixelwise_50epochs \
+    --base-dir runs \
+    --model-type pixelwise \
+    --model-path runs/alphaearth_emb_pixelwise_50epochs/model_best.pth \
+    --test-embeddings-dir data/embed2heights/data/test/alphaearth_test_emb \
+    --predictions-dir runs/alphaearth_emb_pixelwise_50epochs/predictions_fixed \
+    --patch-size 256 \
+    --device cuda \
+    --zip-output submission_50_epochs_alphaearth_pixelwise_fixed.zip
 ```
 
-Test 5 samples predictions
-```bash
-python predict.py --experiment-name test_terramind_s1_decoder_residual --base-dir runs --model-type decoder_residual --model-path runs/test_terramind_s1_decoder_residual/model_best.pth --test-embeddings-dir data/public/embed2heights/data/test/terramind_test_s1_emb --predictions-dir runs/test_terramind_s1_decoder_residual/predictions --patch-size 256 --max-samples 5 --device cuda
-```
+Add `--max-samples 5` to save just 5 samples.
 
-Compute all predictions (with --zip-output to create a zip in `submissions/` folder)
-```bash
-python predict.py --experiment-name test_terramind_s1_decoder_residual --base-dir runs --model-type decoder_residual --model-path runs/test_terramind_s1_decoder_residual/model_best.pth --test-embeddings-dir data/public/embed2heights/data/test/terramind_test_s1_emb --predictions-dir runs/test_terramind_s1_decoder_residual/predictions --patch-size 256 --device cuda --zip-output submission.zip
-```
+Creating of ZIP is optional - `--zip-output` can be ommitted.
 
 ## Send submission
 
-Filenames pattern must be `3123_AB_2022.npy` where `2022` comes from the source embedding filename, and there is no `pred_` or `label_` prefix.
+Filenames pattern must match `3123_AB_2022.npy` where `3123_AB_2022` comes from the source embedding filename, and there is no `pred_` or `label_` prefix, nor any extra suffix such as `_merged` or `_embedding`.
 
 Create a zip with a `submissions/` folder with all 946 npy predictions by adding a --zip-output arg to `predict.py` script. (Alternative: use last cell in `starter_pack-embed2heights.ipynb.`)
 

@@ -1,4 +1,4 @@
-# source repo
+# source repo (if downloaded from https://github.com/VMarsocci/emb2heights-baselines)
 emb2heights-baselines
 
 # venv
@@ -6,8 +6,12 @@ emb2heights-baselines
 venv
 
 # data
-data
-submission
+data/*
+!data/.gitignore
+
+# submissions
+submission/*
+!submission/.gitignore
 
 # runs
 runs/**/*.pth
