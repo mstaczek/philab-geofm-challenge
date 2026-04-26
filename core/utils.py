@@ -16,7 +16,20 @@ def save_experiment_config(*, params_dict, config_log_path):
         for key, value in params_dict.items():
             f.write(f"{key}: {value}\n")
 
+def get_torch_device(device_str):
+    if device_str == "cuda" and torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif device_str == "mps" and torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
+    print("Pytorch device: ", device)
+    return device
 
+def set_seeds(random_seed):
+    torch.manual_seed(random_seed)
+    np.random.seed(random_seed)
+    random.seed(random_seed)
 
 def visualize_predictions(
         *,

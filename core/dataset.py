@@ -71,6 +71,12 @@ def find_file_pairs(emb_dir, tar_dir=None):
         if norm_id in label_map:
             pairs.append((e_path, label_map[norm_id]))
 
+    if len(pairs) == 0:
+        raise ValueError(
+            f"No training (embedding, label) pairs found. train_embeddings_dir='{emb_dir}', "
+            f"train_targets_dir='{tar_dir}'. Check filename conventions and directory paths."
+        )
+
     return pairs
 
 # ---------------------------------------------------------
@@ -186,10 +192,13 @@ class LatentTokenDataset(Dataset):
             target = target[:, top_tar:top_tar + self.patch_size, left_tar:left_tar + self.patch_size]
 
         return torch.from_numpy(image), torch.from_numpy(target) if target is not None else None
-    
 
 
-def build_dataloader(pairs, dataset_type, patch_size, batch_size, is_train):
+def build_dataset(pairs, dataset_type, patch_size, is_train=False,  max_samples=0):
+    # Optionally, limit number of samples in a dataset
+    if max_samples > 0:
+        pairs = pairs[:max_samples]
+
     # Dataset selection based on dataset_type
     if dataset_type == "pixel": # provided dataset have shapes 256x256x(64 or 128)
         dataset = PixelEmbeddingDataset(pairs, patch_size=patch_size, is_train=is_train)
@@ -199,5 +208,15 @@ def build_dataloader(pairs, dataset_type, patch_size, batch_size, is_train):
     else:
         raise ValueError(f"Unsupported dataset type: {dataset_type}. Use 'pixel' or 'latent'.")
 
+    return dataset
+
+
+def build_dataloader(pairs, dataset_type, patch_size, batch_size, is_train):
+    dataset = build_dataset(
+        pairs=pairs,
+        dataset=dataset_type,
+        patch_size=patch_size,
+    )
     return DataLoader(dataset, batch_size=batch_size, shuffle=is_train, num_workers=2)
+
 

@@ -1,18 +1,15 @@
 import os
-import random
 import argparse
-import numpy as np
-import matplotlib.pyplot as plt
 import torch
 import torch.optim as optim
 from sklearn.model_selection import train_test_split
-from tqdm.auto import tqdm
 
 from core.model import build_model, load_model
 from core.dataset import build_dataloader, find_file_pairs
 from core.losses import ImprovedCompositeLoss
-from core.utils import build_zip, save_experiment_config, visualize_predictions
-from predict import get_prediction_dataset, run_inference
+from core.training_utils import generate_training_metrics_plots, run_training_loop
+from core.utils import get_torch_device, save_experiment_config, set_seeds, visualize_predictions
+from predict import run_prediction
 
 
 def parse_args():
@@ -41,218 +38,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def get_train_val_file_pairs(train_embeddings_dir, train_targets_dir, val_split, random_seed):
-    all_train_pairs = find_file_pairs(train_embeddings_dir, train_targets_dir)
-    if len(all_train_pairs) == 0:
-        raise ValueError(
-            "No training (embedding, label) pairs found. "
-            f"train_embeddings_dir='{train_embeddings_dir}', "
-            f"train_targets_dir='{train_targets_dir}'. "
-            "Check filename conventions and directory paths."
-        )
-    train_pairs, val_pairs = train_test_split(all_train_pairs, test_size=val_split, random_state=random_seed)
-    return train_pairs, val_pairs
 
-def run_training_loop(
-        *,
-        model, 
-        train_loader, 
-        val_loader, 
-        criterion, 
-        optimizer, 
-        scheduler,
-        device,
-        epochs,
-        best_model_path):
-    train_losses, val_losses = [], []
-    train_mae_losses, train_ssim_losses, train_grad_losses, train_tversky_losses = [], [], [], []
-
-    # --- TRAINING LOOP ---
-    for epoch in range(epochs):
-        model.train()
-        running_loss = 0.0
-        train_samples_seen = 0
-        train_components = torch.zeros(4).to(device)
-
-        train_pbar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs} [train]", leave=False)
-        for imgs, targets in train_pbar:
-            imgs, targets = imgs.to(device), targets.to(device)
-            optimizer.zero_grad()
-            outputs = model(imgs)
-
-            loss, l_mae, l_ssim, l_grad, l_tversky = criterion(outputs, targets)
-            loss.backward()
-
-            # NEW: Gradient Clipping
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-
-            optimizer.step()
-            running_loss += loss.item() * imgs.size(0)
-            bs = imgs.size(0)
-            train_components[0] += l_mae * bs
-            train_components[1] += l_ssim * bs
-            train_components[2] += l_grad * bs
-            train_components[3] += l_tversky * bs
-            train_samples_seen += imgs.size(0)
-            train_avg = running_loss / max(1, train_samples_seen)
-            train_pbar.set_postfix(loss=f"{loss.item():.4f}", avg=f"{train_avg:.4f}")
-
-        epoch_loss = running_loss / len(train_loader)
-        train_losses.append(epoch_loss)
-        
-        train_epoch_comp = train_components / len(train_loader)
-        train_mae_losses.append(train_epoch_comp[0].item())
-        train_ssim_losses.append(train_epoch_comp[1].item())
-        train_grad_losses.append(train_epoch_comp[2].item())
-        train_tversky_losses.append(train_epoch_comp[3].item())
-
-        # --- VALIDATION LOOP ---
-        model.eval()
-        val_running_loss = 0.0
-        val_components = torch.zeros(4).to(device)
-        val_samples_seen = 0
-        val_mae_losses, val_ssim_losses, val_grad_losses, val_tversky_losses = [], [], [], []
-        best_val_loss = float('inf')
-
-        with torch.no_grad():
-            val_pbar = tqdm(val_loader, desc=f"Epoch {epoch + 1}/{epochs} [val]", leave=False)
-            for imgs, targets in val_pbar:
-                imgs, targets = imgs.to(device), targets.to(device)
-                outputs = model(imgs)
-
-                loss, l_mae, l_ssim, l_grad, l_tversky = criterion(outputs, targets)
-                val_running_loss += loss.item() * imgs.size(0)
-
-                bs = imgs.size(0)
-                val_components[0] += l_mae * bs
-                val_components[1] += l_ssim * bs
-                val_components[2] += l_grad * bs
-                val_components[3] += l_tversky * bs
-                val_samples_seen += bs
-                val_avg_live = val_running_loss / max(1, val_samples_seen)
-                val_pbar.set_postfix(avg=f"{val_avg_live:.4f}")
-
-        epoch_val_loss = val_running_loss / len(val_loader)
-        epoch_comp = val_components / len(val_loader)
-        val_losses.append(epoch_val_loss)
-        
-        val_mae_losses.append(epoch_comp[0].item())
-        val_ssim_losses.append(epoch_comp[1].item())
-        val_grad_losses.append(epoch_comp[2].item())
-        val_tversky_losses.append(epoch_comp[3].item())
-
-        scheduler.step(epoch_val_loss)
-
-        if epoch_val_loss < best_val_loss:
-            best_val_loss = epoch_val_loss
-            torch.save(model.state_dict(), best_model_path)
-            print(f"   >> Model Saved! (New Best Val Loss: {best_val_loss:.4f})")
-
-        print(f"Epoch {epoch + 1}/{epochs} | Train: {epoch_loss:.4f} | Val: {epoch_val_loss:.4f}")
-        print(f"   >> Val Breakdown: MAE:{epoch_comp[0]:.3f} |"
-              f" SSIM:{epoch_comp[1]:.3f} |"
-              f" Grad:{epoch_comp[2]:.3f} |"
-              f" Tversky:{epoch_comp[3]:.3f}")
-                    
-    return {
-        "model": model,
-        "train_losses": train_losses,
-        "val_losses": val_losses,
-        "train_mae_losses": train_mae_losses,
-        "train_ssim_losses": train_ssim_losses,
-        "train_grad_losses": train_grad_losses,
-        "train_tversky_losses": train_tversky_losses,
-        "val_mae_losses": val_mae_losses,
-        "val_ssim_losses": val_ssim_losses,
-        "val_grad_losses": val_grad_losses,
-        "val_tversky_losses": val_tversky_losses
-    }
-
-
-
-def generate_training_metrics_plots(
-        *,
-        train_losses, 
-        val_losses, 
-        train_mae_losses, 
-        val_mae_losses, 
-        train_ssim_losses, 
-        val_ssim_losses, 
-        train_grad_losses, 
-        val_grad_losses, 
-        train_tversky_losses, 
-        val_tversky_losses,
-        experiment_name,
-        exp_dir):
-    
-    combined_loss_output_path = os.path.join(exp_dir, "loss_curve.png")
-    component_loss_output_path = os.path.join(exp_dir, "component_losses.png")
-
-    # Plot combined loss curve
-    plt.figure()
-    plt.plot(train_losses, label='Train Loss')
-    plt.plot(val_losses, label='Validation Loss')
-    plt.title(f"Training Loss Curve ({experiment_name})")
-    plt.legend()
-    plt.savefig(combined_loss_output_path)
-    plt.close()
-
-    # Plot individual loss components
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    
-    axes[0, 0].plot(train_mae_losses, label='Train', linewidth=2)
-    axes[0, 0].plot(val_mae_losses, label='Val', linewidth=2)
-    axes[0, 0].set_title('MAE Loss', fontsize=12, fontweight='bold')
-    axes[0, 0].set_xlabel('Epoch')
-    axes[0, 0].set_ylabel('Loss')
-    axes[0, 0].legend()
-    axes[0, 0].grid(True, alpha=0.3)
-    
-    axes[0, 1].plot(train_ssim_losses, label='Train', linewidth=2)
-    axes[0, 1].plot(val_ssim_losses, label='Val', linewidth=2)
-    axes[0, 1].set_title('SSIM Loss', fontsize=12, fontweight='bold')
-    axes[0, 1].set_xlabel('Epoch')
-    axes[0, 1].set_ylabel('Loss')
-    axes[0, 1].legend()
-    axes[0, 1].grid(True, alpha=0.3)
-    
-    axes[1, 0].plot(train_grad_losses, label='Train', linewidth=2)
-    axes[1, 0].plot(val_grad_losses, label='Val', linewidth=2)
-    axes[1, 0].set_title('Gradient Loss', fontsize=12, fontweight='bold')
-    axes[1, 0].set_xlabel('Epoch')
-    axes[1, 0].set_ylabel('Loss')
-    axes[1, 0].legend()
-    axes[1, 0].grid(True, alpha=0.3)
-    
-    axes[1, 1].plot(train_tversky_losses, label='Train', linewidth=2)
-    axes[1, 1].plot(val_tversky_losses, label='Val', linewidth=2)
-    axes[1, 1].set_title('Tversky Loss', fontsize=12, fontweight='bold')
-    axes[1, 1].set_xlabel('Epoch')
-    axes[1, 1].set_ylabel('Loss')
-    axes[1, 1].legend()
-    axes[1, 1].grid(True, alpha=0.3)
-    
-    plt.suptitle(f"Component Losses ({experiment_name})", fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    plt.savefig(component_loss_output_path)
-    plt.close()
-
-
-
-def set_device_and_seeds(device_str, random_seed):
-    if device_str == "cuda" and torch.cuda.is_available():
-        device = torch.device("cuda")
-    elif device_str == "mps" and torch.backends.mps.is_available():
-        device = torch.device("mps")
-    else:
-        device = torch.device("cpu")
-    print("Pytorch device: ", device)
-
-    torch.manual_seed(random_seed)
-    np.random.seed(random_seed)
-    random.seed(random_seed)
-
-    return device
 def run_training(
         model_type, 
         dataset_type, 
@@ -275,13 +61,14 @@ def run_training(
         batch_size_arg,
         patch_size_arg,
         epochs_arg,
-        device_arg
+        device_arg,
+        random_seed
     ):
     lambdas = [1.0, 0.5, 0.5, 2.0]  # [MAE, SSIM, Gradient, Structure/Tversky]
     learning_rate = 2e-4
     weight_decay = 1e-4  # L2 Regularization
     val_split_fraction = 0.2
-    random_seed = 42
+    set_seeds(random_seed)
 
     experiment_dir = os.path.join(base_runs_dir, experiment_name)
     predictions_dir = os.path.join(experiment_dir, predictions_subfolder)
@@ -322,7 +109,10 @@ def run_training(
     save_experiment_config(params_dict=params_dict, config_log_path=config_log_path)
 
     print("--- 1. Data Setup ---")
-    train_pairs, val_pairs = get_train_val_file_pairs(train_embeddings_dir, train_targets_dir, val_split_fraction, random_seed)
+    
+    all_train_pairs = find_file_pairs(train_embeddings_dir, train_targets_dir)
+
+    train_pairs, val_pairs = train_test_split(all_train_pairs, test_size=val_split_fraction, random_state=random_seed)
 
     train_loader = build_dataloader(train_pairs, dataset_type, patch_size, batch_size, is_train=True)
     val_loader = build_dataloader(val_pairs, dataset_type, patch_size, batch_size, is_train=False)
@@ -371,31 +161,33 @@ def run_training(
     )
 
     best_model = load_model(
-        dataset=test_ds,
         model_type=model_type,
         model_path=best_model_path,
+        n_channels=n_channels,
         device=device
     )
     visualize_predictions(
-        model=training_results["model"],
+        model=best_model,
         dataset=val_loader.dataset, 
         device=device,
         viz_output_dir=viz_output_dir,
         num_samples=5
     )
 
-    print("--- 4. Compute predictions for submission ---")
     if test_embeddings_dir != '' and os.path.exists(test_embeddings_dir):
-        print("Generating predictions for submission...")
-        test_ds = get_prediction_dataset(
-            test_embeddings_dir=test_embeddings_dir, 
+        print("--- 4. Compute predictions for submission ---")
+        run_prediction(
+            device=device,
+            model_path=best_model_path,
+            predictions_dir=predictions_dir,
+            test_embeddings_dir=test_embeddings_dir,
             patch_size=patch_size,
-            dataset_type=dataset_type
-        )
-        run_inference(best_model, test_ds, device, predictions_dir)
-    
-        if zip_output_name:
-            build_zip(predictions_dir, zip_output_name)
+            dataset_type=dataset_type,
+            max_samples=0,
+            model_type=model_type,
+            zip_output_path=zip_output_name
+        )  
+
 
 def main():
     print("Starting main() function")
@@ -414,7 +206,7 @@ def main():
         patch_size=args.patch_size,
         epochs=args.epochs,
         zip_output_name=args.zip_output,
-        device=set_device_and_seeds(args.device, args.random_seed),
+        device=get_torch_device(args.device),
         predictions_subfolder=args.predictions_subfolder,
         output_dir=args.output_dir,
         train_embeddings_dir_arg=args.train_embeddings_dir,
@@ -424,7 +216,8 @@ def main():
         batch_size_arg=args.batch_size,
         patch_size_arg=args.patch_size,
         epochs_arg=args.epochs,
-        device_arg=args.device
+        device_arg=args.device,
+        random_seed=args.random_seed
     )
 
 
