@@ -214,8 +214,9 @@ def build_dataset(pairs, dataset_type, patch_size, is_train=False,  max_samples=
 def build_dataloader(pairs, dataset_type, patch_size, batch_size, is_train):
     dataset = build_dataset(
         pairs=pairs,
-        dataset=dataset_type,
+        dataset_type=dataset_type,
         patch_size=patch_size,
+        is_train=is_train
     )
     return DataLoader(dataset, batch_size=batch_size, shuffle=is_train, num_workers=2)
 
