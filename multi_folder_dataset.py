@@ -238,3 +238,112 @@ class MultiFolderDataset(Dataset):
             sample["label"] = label
 
         return sample
+    
+
+class MultiFolderNpyDataset(Dataset):
+    """
+    Assumes preprocessing already done:
+        - float16 conversion
+        - NaN cleanup
+        - spatial size fixing
+        - contiguous layout
+    """
+
+    def __init__(
+        self,
+        root,
+        split="train",
+        input_folders=None,
+        label_folder="labels",
+        normalize_height=True,
+        dtype=torch.float32,
+    ):
+        if split not in ("train", "test"):
+            raise ValueError("Only train and test splits are supported.")
+
+        if not input_folders:
+            raise ValueError("input_folders must be provided")
+
+        self.split = split
+        self.root = Path(root) / split
+        self.input_folders = input_folders
+        self.label_folder = label_folder
+        self.normalize_height = normalize_height
+        self.dtype = dtype
+        self.has_labels = split == "train"
+
+        self.input_maps = {}
+
+        for folder in input_folders:
+            files = glob.glob(
+                str((self.root / folder) / "**" / "*.npy"),
+                recursive=True
+            )
+
+            self.input_maps[folder] = {
+                _normalize_core_id(f): f
+                for f in files
+            }
+
+        self.label_map = {}
+
+        if self.has_labels:
+            label_files = glob.glob(
+                str((self.root / label_folder) / "**" / "*.npy"),
+                recursive=True
+            )
+
+            self.label_map = {
+                _normalize_core_id(f): f
+                for f in label_files
+            }
+
+        common_ids = set(self.input_maps[input_folders[0]].keys())
+
+        for folder in input_folders[1:]:
+            common_ids &= set(self.input_maps[folder].keys())
+
+        if self.has_labels:
+            common_ids &= set(self.label_map.keys())
+
+        self.sample_ids = sorted(common_ids)
+
+        if not self.sample_ids:
+            raise ValueError("No matching samples found.")
+
+    def __len__(self):
+        return len(self.sample_ids)
+
+    def _load_npy(self, path):
+        tensor = torch.from_numpy(np.load(path))
+
+        if tensor.dtype != self.dtype:
+            tensor = tensor.to(self.dtype)
+
+        return tensor
+
+    def __getitem__(self, idx):
+        sample_id = self.sample_ids[idx]
+
+        sample = {
+            folder: self._load_npy(
+                self.input_maps[folder][sample_id]
+            )
+            for folder in self.input_folders
+        }
+
+        if self.has_labels:
+            label = self._load_npy(
+                self.label_map[sample_id]
+            )
+
+            if self.normalize_height:
+                label[3] = torch.clamp(
+                    label[3] / HEIGHT_NORM_CONSTANT,
+                    min=0.0,
+                    max=1.5
+                )
+
+            sample["label"] = label
+
+        return sample

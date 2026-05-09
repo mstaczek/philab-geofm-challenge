@@ -125,6 +125,7 @@ def save_tif_as_npy(src_path, dst_path):
     # Convert dtype
     # -----------------------------------------------------
 
+    arr = np.clip(arr, -65504, 65504)
     arr = arr.astype(SAVE_DTYPE)
 
     # -----------------------------------------------------
