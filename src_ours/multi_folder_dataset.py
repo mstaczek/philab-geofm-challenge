@@ -11,6 +11,48 @@ from tqdm import tqdm
 
 from src_ours.constants import HEIGHT_NORM_CONSTANT
 
+
+def fix_spatial_size(data):
+    """
+    Fix slightly malformed spatial dimensions.
+
+    Keeps:
+        16x16 unchanged
+
+    Converts:
+        256x255 -> 256x256
+        255x256 -> 256x256
+        255x255 -> 256x256
+    """
+
+    _, h, w = data.shape
+
+    # latent embeddings
+    if (h, w) == (16, 16):
+        return data
+
+    # already correct
+    if (h, w) == (256, 256):
+        return data
+
+    # allow only near-256 cases
+    if h not in (255, 256) or w not in (255, 256):
+        raise ValueError(
+            f"Unexpected spatial size {(h, w)}. "
+            f"Expected 16x16 or near-256 shapes."
+        )
+
+    pad_h = 256 - h
+    pad_w = 256 - w
+
+    data = np.pad(
+        data,
+        ((0, 0), (0, pad_h), (0, pad_w)),
+        mode="reflect"
+    )
+
+    return data
+
 def normalize_core_id(filename, strip_year_suffix=True):
     """
     Extract matching sample ID from filename.
@@ -47,6 +89,40 @@ def normalize_core_id(filename, strip_year_suffix=True):
 
     return base
 
+def find_files_map(folder_path, files_format="tif"):
+    files = glob.glob(
+        str(folder_path / "**" / f"*.{files_format}"),
+        recursive=True,
+    )
+
+    return {
+        normalize_core_id(f): f
+        for f in files
+    }
+
+def find_common_ids(input_maps, input_folders, label_map=None):
+    common_ids = set(input_maps[input_folders[0]].keys())
+    for folder in input_folders[1:]:
+        common_ids &= set(input_maps[folder].keys())
+    if label_map is not None:
+        common_ids &= set(label_map.keys())
+    return sorted(list(common_ids))
+
+def build_input_maps(root, input_folders, files_format):
+    return {
+        folder: find_files_map(
+            root / folder,
+            files_format,
+        )
+        for folder in input_folders
+    }
+
+def build_label_map(root, label_folder, files_format):
+    return find_files_map(
+        root / label_folder,
+        files_format,
+    )
+    
 class MultiFolderDataset(Dataset):
     """
     Multi-modal dataset loader.
@@ -67,7 +143,6 @@ class MultiFolderDataset(Dataset):
     This Dataset class can load samples from specified subfolders
     and preprocesses them accordingly.
     """
-
     def __init__(
         self,
         root,
@@ -80,122 +155,53 @@ class MultiFolderDataset(Dataset):
         if split not in ("train", "test"):
             raise ValueError("Only train and test splits are supported.")
 
+        if input_folders is None or len(input_folders) == 0:
+            raise ValueError("input_folders must be provided")
+        
+        FILES_FORMAT = "tif"
+
         self.split = split
         self.root = Path(root) / split
         self.input_folders = input_folders
         self.label_folder = label_folder
         self.normalize_height = normalize_height
         self.dtype = dtype
-
         self.has_labels = split == "train"
 
-        if input_folders is None or len(input_folders) == 0:
-            raise ValueError("input_folders must be provided")
-
-        # Build input lookup maps
-
-        self.input_maps = {}
-
-        for folder in input_folders:
-            folder_path = self.root / folder
-
-            files = glob.glob(
-                str(folder_path / "**" / "*.tif"),
-                recursive=True
-            )
-
-            mapping = {}
-
-            for f in files:
-                sample_id = normalize_core_id(f)
-                mapping[sample_id] = f
-
-            self.input_maps[folder] = mapping
-
-        # TRAIN: labels required
-        # TEST: labels skipped
+        self.input_maps = build_input_maps(
+            self.root,
+            input_folders,
+            FILES_FORMAT,
+        )
 
         self.label_map = {}
-
         if self.has_labels:
-            label_path = self.root / label_folder
-
-            label_files = glob.glob(
-                str(label_path / "**" / "*.tif"),
-                recursive=True
+            self.label_map = build_label_map(
+                self.root,
+                label_folder,
+                FILES_FORMAT,
             )
 
-            for f in label_files:
-                sample_id = normalize_core_id(f)
-                self.label_map[sample_id] = f
-
-        # Keep only common IDs
-
-        common_ids = set(self.input_maps[input_folders[0]].keys())
-
-        for folder in input_folders[1:]:
-            common_ids &= set(self.input_maps[folder].keys())
-
-        if self.has_labels:
-            common_ids &= set(self.label_map.keys())
-
-        self.sample_ids = sorted(list(common_ids))
+        self.sample_ids = find_common_ids(
+            self.input_maps,
+            input_folders,
+            self.label_map if self.has_labels else None,
+        )
 
         if len(self.sample_ids) == 0:
             raise ValueError("No matching samples found.")
 
+
     def __len__(self):
         return len(self.sample_ids)
-
-    def _fix_spatial_size(self, data):
-        """
-        Fix slightly malformed spatial dimensions.
-
-        Keeps:
-            16x16 unchanged
-
-        Converts:
-            256x255 -> 256x256
-            255x256 -> 256x256
-            255x255 -> 256x256
-        """
-
-        _, h, w = data.shape
-
-        # latent embeddings -> leave untouched
-        if (h, w) == (16, 16):
-            return data
-
-        # already correct
-        if (h, w) == (256, 256):
-            return data
-
-        # allow only near-256 cases
-        if h not in (255, 256) or w not in (255, 256):
-            raise ValueError(
-                f"Unexpected spatial size {(h, w)}. "
-                f"Expected 16x16 or near-256 shapes."
-            )
-
-        pad_h = 256 - h
-        pad_w = 256 - w
-
-        data = np.pad(
-            data,
-            ((0, 0), (0, pad_h), (0, pad_w)),
-            mode="reflect"
-        )
-
-        return data
 
     def _load_tif(self, path):
         with rasterio.open(path) as src:
             data = src.read().astype(np.float32)
 
         data = np.nan_to_num(data)
-
         # normalize malformed spatial dimensions
-        data = self._fix_spatial_size(data)
+        data = fix_spatial_size(data)
 
         return torch.tensor(data, dtype=self.dtype)
 
@@ -244,8 +250,10 @@ class MultiFolderNpyDataset(Dataset):
         if split not in ("train", "test"):
             raise ValueError("Only train and test splits are supported.")
 
-        if not input_folders:
+        if input_folders is None or len(input_folders) == 0:
             raise ValueError("input_folders must be provided")
+        
+        FILES_FORMAT = "npy"
 
         self.split = split
         self.root = Path(root) / split
@@ -255,43 +263,27 @@ class MultiFolderNpyDataset(Dataset):
         self.dtype = dtype
         self.has_labels = split == "train"
 
-        self.input_maps = {}
-
-        for folder in input_folders:
-            files = glob.glob(
-                str((self.root / folder) / "**" / "*.npy"),
-                recursive=True
-            )
-
-            self.input_maps[folder] = {
-                normalize_core_id(f): f
-                for f in files
-            }
+        self.input_maps = build_input_maps(
+            self.root,
+            input_folders,
+            FILES_FORMAT,
+        )
 
         self.label_map = {}
-
         if self.has_labels:
-            label_files = glob.glob(
-                str((self.root / label_folder) / "**" / "*.npy"),
-                recursive=True
+            self.label_map = build_label_map(
+                self.root,
+                label_folder,
+                FILES_FORMAT,
             )
 
-            self.label_map = {
-                normalize_core_id(f): f
-                for f in label_files
-            }
+        self.sample_ids = find_common_ids(
+            self.input_maps,
+            input_folders,
+            self.label_map if self.has_labels else None,
+        )
 
-        common_ids = set(self.input_maps[input_folders[0]].keys())
-
-        for folder in input_folders[1:]:
-            common_ids &= set(self.input_maps[folder].keys())
-
-        if self.has_labels:
-            common_ids &= set(self.label_map.keys())
-
-        self.sample_ids = sorted(common_ids)
-
-        if not self.sample_ids:
+        if len(self.sample_ids) == 0:
             raise ValueError("No matching samples found.")
 
     def __len__(self):

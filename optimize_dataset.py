@@ -10,61 +10,7 @@ from src_ours.constants import LABEL_FOLDER
 from src_ours.constants import SOURCE_ROOT_TIF
 from src_ours.constants import SOURCE_ROOT_NPY
 from src_ours.multi_folder_dataset import MultiFolderDataset
-
-
-train_dataset = MultiFolderDataset(
-    root=SOURCE_ROOT_TIF,
-    split="train",
-    input_folders=TRAIN_INPUT_FOLDERS,
-)
-
-test_dataset = MultiFolderDataset(
-    root=SOURCE_ROOT_TIF,
-    split="test",
-    input_folders=TEST_INPUT_FOLDERS,
-)
-
-
-def fix_spatial_size(data):
-    """
-    Fix slightly malformed spatial dimensions.
-
-    Keeps:
-        16x16 unchanged
-
-    Converts:
-        256x255 -> 256x256
-        255x256 -> 256x256
-        255x255 -> 256x256
-    """
-
-    _, h, w = data.shape
-
-    # latent embeddings
-    if (h, w) == (16, 16):
-        return data
-
-    # already correct
-    if (h, w) == (256, 256):
-        return data
-
-    # allow only near-256 cases
-    if h not in (255, 256) or w not in (255, 256):
-        raise ValueError(
-            f"Unexpected spatial size {(h, w)}. "
-            f"Expected 16x16 or near-256 shapes."
-        )
-
-    pad_h = 256 - h
-    pad_w = 256 - w
-
-    data = np.pad(
-        data,
-        ((0, 0), (0, pad_h), (0, pad_w)),
-        mode="reflect"
-    )
-
-    return data
+from src_ours.multi_folder_dataset import fix_spatial_size
 
 
 def save_tif_as_npy(src_path, dst_path):
@@ -127,6 +73,18 @@ def export_split(
     print(f"Finished split: {split_name}")
 
 def main():
+    
+    train_dataset = MultiFolderDataset(
+        root=SOURCE_ROOT_TIF,
+        split="train",
+        input_folders=TRAIN_INPUT_FOLDERS,
+    )
+
+    test_dataset = MultiFolderDataset(
+        root=SOURCE_ROOT_TIF,
+        split="test",
+        input_folders=TEST_INPUT_FOLDERS,
+    )
     print("Converting split: train")
     export_split(
         dataset=train_dataset,
