@@ -217,3 +217,19 @@ Filenames pattern must match `3123_AB_2022.npy` where `3123_AB_2022` comes from 
 Create a zip with a `submissions/` folder with all 946 npy predictions by adding a --zip-output arg to `predict.py` script. (Alternative: use last cell in `starter_pack-embed2heights.ipynb.`)
 
 Upload the `submission.zip` file to https://platform.ai4eo.eu/geoai/submissions (can be uploaded every 12h).
+
+---
+
+# New approach
+
+Changes with respect to the previous approach:
+- folder `experiments` contains experiments with descriptions (for example checking npy vs tif loading time),
+- folder `src_ours` contains scripts that we added,
+- data loading supports loading all sources at the same time, as dictionaries with keys specifying sources.
+
+### Convert data to npy
+
+Convert data from tif to npy with (reduces time to iterate over data by x4-x7)
+```bash
+python optimize_dataset.py
+```

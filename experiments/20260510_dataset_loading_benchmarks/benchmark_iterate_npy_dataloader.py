@@ -3,7 +3,7 @@ import time
 
 from torch.utils.data import DataLoader
 
-from multi_folder_dataset import MultiFolderDataset, MultiFolderNpyDataset
+from src_ours.multi_folder_dataset import MultiFolderDataset, MultiFolderNpyDataset
 
 
 def benchmark_dataloader(loader, name, limit_batches=16):

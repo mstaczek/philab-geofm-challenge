@@ -9,10 +9,9 @@ import torch
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
-HEIGHT_NORM_CONSTANT = 30.0
+from src_ours.constants import HEIGHT_NORM_CONSTANT
 
-
-def _normalize_core_id(filename, strip_year_suffix=True):
+def normalize_core_id(filename, strip_year_suffix=True):
     """
     Extract matching sample ID from filename.
     """
@@ -64,6 +63,9 @@ class MultiFolderDataset(Dataset):
             "alphaearth_emb": tensor,
             ...
         }
+
+    This Dataset class can load samples from specified subfolders
+    and preprocesses them accordingly.
     """
 
     def __init__(
@@ -90,9 +92,7 @@ class MultiFolderDataset(Dataset):
         if input_folders is None or len(input_folders) == 0:
             raise ValueError("input_folders must be provided")
 
-        # ---------------------------------------------------------
         # Build input lookup maps
-        # ---------------------------------------------------------
 
         self.input_maps = {}
 
@@ -107,15 +107,13 @@ class MultiFolderDataset(Dataset):
             mapping = {}
 
             for f in files:
-                sample_id = _normalize_core_id(f)
+                sample_id = normalize_core_id(f)
                 mapping[sample_id] = f
 
             self.input_maps[folder] = mapping
 
-        # ---------------------------------------------------------
         # TRAIN: labels required
         # TEST: labels skipped
-        # ---------------------------------------------------------
 
         self.label_map = {}
 
@@ -128,12 +126,10 @@ class MultiFolderDataset(Dataset):
             )
 
             for f in label_files:
-                sample_id = _normalize_core_id(f)
+                sample_id = normalize_core_id(f)
                 self.label_map[sample_id] = f
 
-        # ---------------------------------------------------------
         # Keep only common IDs
-        # ---------------------------------------------------------
 
         common_ids = set(self.input_maps[input_folders[0]].keys())
 
@@ -207,48 +203,35 @@ class MultiFolderDataset(Dataset):
         sample_id = self.sample_ids[idx]
 
         sample = {}
-
-        # ---------------------------------------------------------
         # Inputs
-        # ---------------------------------------------------------
-
         for folder in self.input_folders:
             path = self.input_maps[folder][sample_id]
-
             image = self._load_tif(path)
-
             sample[folder] = image
-
-        # ---------------------------------------------------------
         # Labels (train only)
-        # ---------------------------------------------------------
-
         if self.has_labels:
             label_path = self.label_map[sample_id]
-
             label = self._load_tif(label_path)
-
             if self.normalize_height:
                 label[3] = torch.clamp(
                     label[3] / HEIGHT_NORM_CONSTANT,
                     min=0.0,
                     max=1.5
                 )
-
             sample["label"] = label
-
         return sample
     
 
 class MultiFolderNpyDataset(Dataset):
     """
-    Assumes preprocessing already done:
-        - float16 conversion
-        - NaN cleanup
-        - spatial size fixing
-        - contiguous layout
-    """
+    This Dataset supports loading data from different subfolders.
 
+    Assumes preprocessing already done:
+        - no nans are present
+        - spatial sizes all match from a given folder
+
+    Applies height channel normalization of the labels
+    """
     def __init__(
         self,
         root,
@@ -281,7 +264,7 @@ class MultiFolderNpyDataset(Dataset):
             )
 
             self.input_maps[folder] = {
-                _normalize_core_id(f): f
+                normalize_core_id(f): f
                 for f in files
             }
 
@@ -294,7 +277,7 @@ class MultiFolderNpyDataset(Dataset):
             )
 
             self.label_map = {
-                _normalize_core_id(f): f
+                normalize_core_id(f): f
                 for f in label_files
             }
 

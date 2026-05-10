@@ -1,6 +1,6 @@
 import time
 
-from multi_folder_dataset import MultiFolderDataset, MultiFolderNpyDataset
+from src_ours.multi_folder_dataset import MultiFolderDataset, MultiFolderNpyDataset
 
     
 def benchmark_dataset(dataset, name, limit=2048):

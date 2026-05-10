@@ -4,60 +4,26 @@ import numpy as np
 import rasterio
 from tqdm import tqdm
 
-from multi_folder_dataset import MultiFolderDataset
+from src_ours.constants import TRAIN_INPUT_FOLDERS
+from src_ours.constants import TEST_INPUT_FOLDERS
+from src_ours.constants import LABEL_FOLDER
+from src_ours.constants import SOURCE_ROOT_TIF
+from src_ours.constants import SOURCE_ROOT_NPY
+from src_ours.multi_folder_dataset import MultiFolderDataset
 
-
-# =========================================================
-# SETTINGS
-# =========================================================
-
-SOURCE_ROOT = "data/embed2heights/data"
-
-OUTPUT_ROOT = Path("data/embed2heights_npy")
-
-TRAIN_INPUT_FOLDERS = [
-    "alphaearth_emb",
-    "terramind_s1_emb",
-    "terramind_s2_emb",
-    "tessera_emb",
-    "thor_s1_emb",
-    "thor_s2_emb",
-]
-
-TEST_INPUT_FOLDERS = [
-    "alphaearth_test_emb",
-    "terramind_test_s1_emb",
-    "terramind_test_s2_emb",
-    "tessera_test_emb",
-    "thor_test_s1_emb",
-    "thor_test_s2_emb",
-]
-
-LABEL_FOLDER = "labels"
-
-SAVE_DTYPE = np.float16
-
-
-# =========================================================
-# CREATE DATASETS
-# =========================================================
 
 train_dataset = MultiFolderDataset(
-    root=SOURCE_ROOT,
+    root=SOURCE_ROOT_TIF,
     split="train",
     input_folders=TRAIN_INPUT_FOLDERS,
 )
 
 test_dataset = MultiFolderDataset(
-    root=SOURCE_ROOT,
+    root=SOURCE_ROOT_TIF,
     split="test",
     input_folders=TEST_INPUT_FOLDERS,
 )
 
-
-# =========================================================
-# HELPERS
-# =========================================================
 
 def fix_spatial_size(data):
     """
@@ -109,37 +75,17 @@ def save_tif_as_npy(src_path, dst_path):
     with rasterio.open(src_path) as src:
         arr = src.read()
 
-    # -----------------------------------------------------
     # Cleanup
-    # -----------------------------------------------------
-
-    arr = np.nan_to_num(arr)
-
-    # -----------------------------------------------------
     # Fix malformed spatial dimensions
-    # -----------------------------------------------------
-
+    arr = np.nan_to_num(arr)
     arr = fix_spatial_size(arr)
-
-    # -----------------------------------------------------
-    # Convert dtype
-    # -----------------------------------------------------
-
+    # Convert dtype to float16 (clip to avoid inf)
     arr = np.clip(arr, -65504, 65504)
-    arr = arr.astype(SAVE_DTYPE)
-
-    # -----------------------------------------------------
-    # Make contiguous
-    # -----------------------------------------------------
-
+    arr = arr.astype(np.float16)
+    # Make contiguous (apparently helps, not verified)
     arr = np.ascontiguousarray(arr)
 
-    # -----------------------------------------------------
-    # Save
-    # -----------------------------------------------------
-
     dst_path.parent.mkdir(parents=True, exist_ok=True)
-
     np.save(dst_path, arr)
 
 
@@ -148,18 +94,13 @@ def export_split(
     split_name,
     input_folders,
 ):
-    """
-    Export one split to NPY.
-    """
+    """Export one split to NPY."""
 
     print(f"\nExporting split: {split_name}")
 
-    split_root = OUTPUT_ROOT / split_name
+    split_root = Path(SOURCE_ROOT_NPY) / split_name
 
-    # -----------------------------------------------------
     # Create folder structure
-    # -----------------------------------------------------
-
     for folder in input_folders:
         (split_root / folder).mkdir(parents=True, exist_ok=True)
 
@@ -169,57 +110,38 @@ def export_split(
             exist_ok=True
         )
 
-    # -----------------------------------------------------
-    # Export inputs
-    # -----------------------------------------------------
-
+    # Process and save
     for sample_id in tqdm(dataset.sample_ids):
-
-        # -------------------------------------------------
         # Inputs
-        # -------------------------------------------------
-
         for folder in input_folders:
-
             src_path = dataset.input_maps[folder][sample_id]
-
             dst_name = Path(src_path).stem + ".npy"
-
             dst_path = split_root / folder / dst_name
-
             save_tif_as_npy(src_path, dst_path)
-
-        # -------------------------------------------------
         # Labels
-        # -------------------------------------------------
-
         if dataset.has_labels:
-
             src_path = dataset.label_map[sample_id]
-
             dst_name = Path(src_path).stem + ".npy"
-
             dst_path = split_root / LABEL_FOLDER / dst_name
-
             save_tif_as_npy(src_path, dst_path)
-
     print(f"Finished split: {split_name}")
 
+def main():
+    print("Converting split: train")
+    export_split(
+        dataset=train_dataset,
+        split_name="train",
+        input_folders=TRAIN_INPUT_FOLDERS,
+    )
 
-# =========================================================
-# RUN EXPORT
-# =========================================================
+    print("Converting split: test")
+    export_split(
+        dataset=test_dataset,
+        split_name="test",
+        input_folders=TEST_INPUT_FOLDERS,
+    )
 
-export_split(
-    dataset=train_dataset,
-    split_name="train",
-    input_folders=TRAIN_INPUT_FOLDERS,
-)
+    print("\nAll conversions complete.")
 
-export_split(
-    dataset=test_dataset,
-    split_name="test",
-    input_folders=TEST_INPUT_FOLDERS,
-)
-
-print("\nAll conversions complete.")
+if __name__ == "__main__":
+    main()
