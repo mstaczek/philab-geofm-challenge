@@ -7,6 +7,7 @@ import torch.optim as optim
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 
+from core.dataset import _normalize_core_id
 from src_ours.multi_folder_dataset import MultiFolderNpyDataset
 
 from core.losses import ImprovedCompositeLoss
@@ -254,7 +255,8 @@ def run_prediction(*, model, test_loader, device, predictions_dir, zip_output_na
                 pred[0:3] = np.clip(pred[0:3], 0.0, 1.0)
                 pred[3] = np.clip(pred[3], 0.0, 1000.0)
                 sample_id = dataset.sample_ids[sample_index]
-                save_path = Path(predictions_dir) / f"{sample_id}.npy"
+                output_filename = _normalize_core_id(sample_id, strip_year_suffix=False)
+                save_path = Path(predictions_dir) / f"{output_filename}.npy"
                 np.save(save_path, pred)
                 sample_index += 1
     print(f"Saved predictions to: {predictions_dir}")
