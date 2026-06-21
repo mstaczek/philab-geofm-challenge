@@ -307,6 +307,7 @@ class MultiFolderNpyDataset(Dataset):
             for folder in self.input_folders
         }
 
+        label = torch.empty(0)
         if self.has_labels:
             label = self._load_npy(
                 self.label_map[sample_id]
@@ -319,6 +320,4 @@ class MultiFolderNpyDataset(Dataset):
                     max=1.5
                 )
 
-            sample["label"] = label
-
-        return sample
+        return sample, label
