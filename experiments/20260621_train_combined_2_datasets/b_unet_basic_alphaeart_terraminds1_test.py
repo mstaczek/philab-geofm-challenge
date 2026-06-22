@@ -30,7 +30,7 @@ def main():
         dataset_names=["alphaearth", "terraminds1"],
         model=model,
         save_zip=True,
-        zip_output_name="testing_to_delete-testing_joined_dataset_training_v3.zip",
+        zip_output_name="testing_joined_dataset_training_v3.zip",
     )
 
 if __name__ == "__main__":
