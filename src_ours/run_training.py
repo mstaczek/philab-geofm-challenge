@@ -1,7 +1,9 @@
 
 import copy
+import datetime
 import os
 import argparse
+import time
 import torch
 import torch.optim as optim
 from sklearn.model_selection import train_test_split
@@ -55,6 +57,7 @@ def run_training_loop(
     
     # --- TRAINING LOOP ---
     for epoch in range(epochs):
+        print("Epoch:", epoch, "Time:", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         model.train()
         running_loss = 0.0
         train_samples_seen = 0
@@ -243,21 +246,28 @@ def run_prediction(*, model, test_loader, device, predictions_dir, zip_output_na
     model.eval()
     dataset = test_loader.dataset
     sample_index = 0
+    sample_input_folder_name = dataset.input_folders[0]
+    sample_inputs_paths = dataset.input_maps[sample_input_folder_name]
+
     with torch.no_grad():
         for imgs, _ in tqdm(test_loader, desc="Predicting"):
             imgs = {k: v.to(device) for k, v in imgs.items()}
             outputs = model(imgs)
             preds = outputs.cpu().numpy().astype(np.float32)
+
             batch_size = preds.shape[0]
             for b in range(batch_size):
                 pred = preds[b]
                 pred[3] = pred[3] * HEIGHT_NORM_CONSTANT
                 pred[0:3] = np.clip(pred[0:3], 0.0, 1.0)
                 pred[3] = np.clip(pred[3], 0.0, 1000.0)
+
                 sample_id = dataset.sample_ids[sample_index]
-                output_filename = _normalize_core_id(sample_id, strip_year_suffix=False)
+                path_to_input = sample_inputs_paths[sample_id]
+                output_filename = _normalize_core_id(path_to_input, strip_year_suffix=False)
                 save_path = Path(predictions_dir) / f"{output_filename}.npy"
                 np.save(save_path, pred)
+                
                 sample_index += 1
     print(f"Saved predictions to: {predictions_dir}")
     if zip_output_name is None:

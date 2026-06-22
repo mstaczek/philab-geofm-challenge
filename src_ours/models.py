@@ -4,6 +4,29 @@ import torch.nn as nn
 from src_ours.constants import TEST_DATASET_FOLDERS, TRAIN_DATASET_FOLDERS
 
 
+class DummyModelDictInput(nn.Module):
+    """
+    Always predict 0.
+    """
+    def __init__(self):
+        super().__init__()
+        self.dummy = nn.Parameter(torch.tensor(0.0))
+
+    def forward(self, batch):
+        x = next(iter(batch.values()))
+        batch_size = x.shape[0]
+
+        return (
+            torch.zeros(
+                (batch_size, 4, 256, 256),
+                device=x.device,
+                dtype=x.dtype,
+            )
+            + self.dummy
+        )
+
+# ==================
+
 class PixelWiseBaseline(nn.Module):
     """
     Pixel-wise baseline model (1x1 Conv MLP).
