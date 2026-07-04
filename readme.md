@@ -40,6 +40,7 @@ Output:
 | 1) Baseline terramind_s1 50 epochs               | terramind_s1 | decoder_residual | 0.1380      | 0.1175    | 0.5988  | 0.1253    | 3.2991       | 6.8749     |
 | 2) Baseline alphaearth 50 epochs                 | alphaearth   | lightunet        | 0.3558      | 0.3270    | 0.7761  | 0.3957    | 2.3230       | 3.9531     |
 | 3) Baseline alphaearth 50 epochs pixelwise model | alphaearth   | pixelwise        | 0.1898      | 0.1655    | 0.5696  | 0.2146    | 2.7266       | 4.7987     |
+| 4) Join alphaearth with terramind 50 epochs | alphaearth + terramind_s1 | lightunet + concat to latent | ~0.2 | ... | ... | ... | ... | ... |
 
 ### Models
 
@@ -57,7 +58,8 @@ Output:
         - equivalent to a simple MLP applied to each pixel independently,
         - channels counts: 128/64 -> 16 -> 4,
     - no spatial awareness / no neighbor pixels taken into account,
-
+- lightunet + concat to latent:
+    - same as lightunet but additional input is concatenated into the inner most unet layer.
 
 ## 1) Baseline terramind_s1 50 epochs
 
@@ -83,6 +85,16 @@ Output:
 | ![](runs/alphaearth_emb_pixelwise_50epochs/component_losses.png) | ![](runs/alphaearth_emb_pixelwise_50epochs/loss_curve.png) |
 
 ![](runs/alphaearth_emb_pixelwise_50epochs/visualizations/viz_4.png)
+
+
+## 4) Join alphaearth with terramind 50 epochs
+
+| Component Losses                                                 | Loss Curve                                                 |
+| ---------------------------------------------------------------- | ---------------------------------------------------------- |
+| ![](runs/unet_alphaearth_with_terrainds1_try1/component_losses.png) | ![](runs/unet_alphaearth_with_terrainds1_try1/loss_curve.png) |
+
+![](runs/unet_alphaearth_with_terrainds1_try1/visualizations/viz_1.png)
+
 
 
 ---
